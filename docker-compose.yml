@@ -1,0 +1,56 @@
+services:
+  psychosomatic:
+    build: .
+    container_name: psychosomatic_bot
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Telegram
+      BOT_TOKEN: ${BOT_TOKEN}
+      
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      
+      # Application
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_ENV: ${APP_ENV:-development}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      
+      # YandexGPT - ДОБАВЬТЕ ЭТИ СТРОКИ!
+      YANDEX_API_KEY: ${YANDEX_API_KEY}
+      YANDEX_FOLDER_ID: ${YANDEX_FOLDER_ID}
+      YANDEX_MODEL: ${YANDEX_MODEL:-yandexgpt/latest}
+      YANDEX_TIMEOUT: ${YANDEX_TIMEOUT:-60}
+      YANDEX_MAX_RETRIES: ${YANDEX_MAX_RETRIES:-2}
+    ports:
+      - "8000:8000"
+    networks:
+      - psychosomatic_network
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: psychosomatic_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - psychosomatic_network
+
+volumes:
+  pgdata:
+
+networks:
+  psychosomatic_network:
+    driver: bridge
