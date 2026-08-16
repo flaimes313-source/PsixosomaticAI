@@ -1,90 +1,103 @@
 """
-Обработчики кнопок главного меню.
+Главный файл приложения.
+Запускает Telegram бота и FastAPI сервер.
 """
-from aiogram import Router, types
-from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
+import sys
+from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
+import uvicorn
 
-from app.bot.keyboards import get_main_menu_keyboard
-from app.bot.handlers.history import show_history
-from app.utils.logging import logger
-
-router = Router()
-
-
-# Убираем заглушку для "🧠 Проверить стресс" - теперь есть в stress.py
-
-
-@router.message(lambda msg: msg.text == "📋 История")
-async def handle_history_button(message: types.Message, db_session: AsyncSession):
-    """Обработчик кнопки 'История'."""
-    logger.info(f"User requested history via button: telegram_id={message.from_user.id}")
-    await show_history(message, db_session)
+from app.config import settings
+from app.utils.logging import setup_logging, logger
+from app.bot.middlewares import DBSessionMiddleware
+from app.bot.handlers import start, menu, help, privacy, symptom, cancel, history, stress
+from app.bot.errors import router as errors_router
+from app.api.server import app as fastapi_app
+from app.db.database import check_db_connection, engine
 
 
-@router.message(lambda msg: msg.text == "⚙️ Настройки")
-async def handle_settings(message: types.Message, db_session: AsyncSession):
-    """Обработчик кнопки 'Настройки'."""
-    logger.info(f"User requested settings: telegram_id={message.from_user.id}")
+# Настройка логирования
+logger = setup_logging(settings.LOG_LEVEL)
+
+
+async def setup_bot_commands(bot: Bot) -> None:
+    """Настраивает команды для меню Telegram бота."""
+    commands = [
+        BotCommand(command="start", description="Запустить бота"),
+        BotCommand(command="help", description="Помощь"),
+        BotCommand(command="privacy", description="Конфиденциальность"),
+        BotCommand(command="cancel", description="Отменить текущий диалог"),
+        BotCommand(command="history", description="История анализов"),
+    ]
+    await bot.set_my_commands(commands)
+    logger.info("Bot commands configured")
+
+
+async def main() -> None:
+    """Главная функция запуска приложения."""
+    logger.info("Starting Psychosomatic Bot...")
     
-    await message.answer(
-        "⚙️ Настройки\n\n"
-        "Здесь можно настроить профиль и уведомления.",
-        reply_markup=get_main_menu_keyboard(),
+    # Проверяем подключение к базе данных
+    logger.info("Checking database connection...")
+    if not await check_db_connection():
+        logger.error("Database connection failed! Exiting...")
+        sys.exit(1)
+    logger.info("Database connection OK")
+    
+    # Создаем экземпляр бота
+    bot = Bot(token=settings.BOT_TOKEN)
+    
+    # Создаем диспетчер
+    dp = Dispatcher()
+    
+    # Регистрируем middleware
+    dp.update.middleware(DBSessionMiddleware())
+    logger.info("Middleware registered")
+    
+    # Регистрируем обработчики (порядок важен!)
+    dp.include_router(start.router)
+    dp.include_router(menu.router)
+    dp.include_router(help.router)
+    dp.include_router(privacy.router)
+    dp.include_router(symptom.router)   # Сценарий "Разобрать симптом"
+    dp.include_router(stress.router)    # Сценарий "Проверить стресс"
+    dp.include_router(cancel.router)    # Команда /cancel
+    dp.include_router(history.router)   # История анализов
+    dp.include_router(errors_router)    # Глобальный обработчик ошибок
+    logger.info("Handlers registered")
+    
+    # Настраиваем команды
+    await setup_bot_commands(bot)
+    
+    # Запускаем FastAPI сервер в фоне
+    logger.info(f"Starting FastAPI server on {settings.API_HOST}:{settings.API_PORT}")
+    config = uvicorn.Config(
+        fastapi_app,
+        host=settings.API_HOST,
+        port=settings.API_PORT,
+        log_level="warning",
     )
-
-
-@router.message(lambda msg: msg.text == "❓ Помощь")
-async def handle_help_button(message: types.Message, db_session: AsyncSession):
-    """Обработчик кнопки 'Помощь'."""
-    logger.info(f"User requested help via button: telegram_id={message.from_user.id}")
+    server = uvicorn.Server(config)
+    fastapi_task = asyncio.create_task(server.serve())
     
-    help_text = (
-        "❓ Помощь\n\n"
-        "🧠 Разобрать симптом\n"
-        "Помогает исследовать возможную связь\n"
-        "телесных ощущений со стрессом и эмоциями.\n\n"
-        "🧠 Проверить стресс\n"
-        "Позволяет пройти небольшой опрос\n"
-        "о текущем состоянии.\n\n"
-        "📋 История\n"
-        "Сохраняет все предыдущие разборы симптомов.\n\n"
-        "⚙️ Настройки\n"
-        "Настройки профиля и уведомлений.\n\n"
-        "━━━━━━━━━━━━━━━━━━━\n\n"
-        "⚠️ Если тебе сейчас плохо или есть\n"
-        "сильные/необычные физические симптомы,\n"
-        "обратись к врачу или в экстренную помощь."
-    )
-    
-    await message.answer(help_text, reply_markup=get_main_menu_keyboard())
+    try:
+        # Запускаем бота (поллинг)
+        logger.info("Starting bot polling...")
+        await dp.start_polling(bot)
+    finally:
+        # Graceful shutdown
+        fastapi_task.cancel()
+        await bot.session.close()
+        await engine.dispose()
+        logger.info("Application stopped")
 
 
-@router.message(lambda msg: msg.text == "🔐 Конфиденциальность")
-async def handle_privacy_button(message: types.Message, db_session: AsyncSession):
-    """Обработчик кнопки 'Конфиденциальность'."""
-    logger.info(f"User requested privacy via button: telegram_id={message.from_user.id}")
-    
-    privacy_text = (
-        "🔐 Конфиденциальность\n\n"
-        "Мы сохраняем технические данные,\n"
-        "необходимые для работы бота:\n"
-        "• Telegram ID\n"
-        "• Имя и фамилия\n"
-        "• Время взаимодействия\n"
-        "• История анализов\n\n"
-        "В следующих версиях будет реализовано\n"
-        "удаление пользовательских данных.\n\n"
-        "Важно: бот не ставит медицинские диагнозы\n"
-        "и не заменяет профессиональную помощь."
-    )
-    
-    await message.answer(privacy_text, reply_markup=get_main_menu_keyboard())
-
-
-@router.message(lambda msg: msg.text == "🔙 Назад")
-async def handle_back(message: types.Message, db_session: AsyncSession):
-    """Обработчик кнопки 'Назад'."""
-    await message.answer(
-        "Возвращаемся в главное меню",
-        reply_markup=get_main_menu_keyboard(),
-    )
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
+        sys.exit(1)
