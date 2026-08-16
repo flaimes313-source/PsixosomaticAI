@@ -11,16 +11,7 @@ from app.utils.logging import logger
 router = Router()
 
 
-@router.message(lambda msg: msg.text == "🧠 Проверить стресс")
-async def handle_stress_check(message: types.Message, db_session: AsyncSession):
-    """Обработчик кнопки 'Проверить стресс'."""
-    logger.info(f"User requested stress check: telegram_id={message.from_user.id}")
-    
-    await message.answer(
-        "🧠 Проверка стресса\n\n"
-        "Эта функция будет подключена на следующем этапе.",
-        reply_markup=get_main_menu_keyboard(),
-    )
+# Убираем заглушку для "🧠 Проверить стресс" - теперь есть в stress.py
 
 
 @router.message(lambda msg: msg.text == "📋 История")
