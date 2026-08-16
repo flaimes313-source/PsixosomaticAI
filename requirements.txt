@@ -23,4 +23,3 @@ aiosqlite==0.20.0
 
 # Utils
 python-multipart==0.0.20
-psycopg2-binary>=2.9.0
