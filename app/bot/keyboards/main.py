@@ -6,7 +6,6 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Создает главное меню с кнопками."""
     builder = ReplyKeyboardBuilder()
     
     builder.add(
@@ -27,10 +26,8 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_back_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Создает клавиатуру с кнопкой 'Назад'."""
     builder = ReplyKeyboardBuilder()
     builder.add(KeyboardButton(text="🔙 Назад"))
-    
     return builder.as_markup(
         resize_keyboard=True,
         one_time_keyboard=False,
