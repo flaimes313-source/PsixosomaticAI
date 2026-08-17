@@ -23,3 +23,7 @@ from .timezone import (
     get_timezone_keyboard,
     get_timezone_skip_keyboard,
 )
+from .settings import (
+    get_settings_keyboard,
+    get_confirm_delete_keyboard,
+)

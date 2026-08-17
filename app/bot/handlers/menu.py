@@ -11,9 +11,6 @@ from app.utils.logging import logger
 router = Router()
 
 
-# Убираем заглушку для "🧠 Проверить стресс" - теперь есть в stress.py
-
-
 @router.message(lambda msg: msg.text == "📋 История")
 async def handle_history_button(message: types.Message, db_session: AsyncSession):
     """Обработчик кнопки 'История'."""
@@ -21,16 +18,7 @@ async def handle_history_button(message: types.Message, db_session: AsyncSession
     await show_history(message, db_session)
 
 
-@router.message(lambda msg: msg.text == "⚙️ Настройки")
-async def handle_settings(message: types.Message, db_session: AsyncSession):
-    """Обработчик кнопки 'Настройки'."""
-    logger.info(f"User requested settings: telegram_id={message.from_user.id}")
-    
-    await message.answer(
-        "⚙️ Настройки\n\n"
-        "Здесь можно настроить профиль и уведомления.",
-        reply_markup=get_main_menu_keyboard(),
-    )
+# Убираем заглушку для "⚙️ Настройки" - теперь есть в settings.py
 
 
 @router.message(lambda msg: msg.text == "❓ Помощь")
@@ -49,7 +37,7 @@ async def handle_help_button(message: types.Message, db_session: AsyncSession):
         "📋 История\n"
         "Сохраняет все предыдущие разборы симптомов.\n\n"
         "⚙️ Настройки\n"
-        "Настройки профиля и уведомлений.\n\n"
+        "Профиль и управление данными.\n\n"
         "━━━━━━━━━━━━━━━━━━━\n\n"
         "⚠️ Если тебе сейчас плохо или есть\n"
         "сильные/необычные физические симптомы,\n"
@@ -72,8 +60,8 @@ async def handle_privacy_button(message: types.Message, db_session: AsyncSession
         "• Имя и фамилия\n"
         "• Время взаимодействия\n"
         "• История анализов\n\n"
-        "В следующих версиях будет реализовано\n"
-        "удаление пользовательских данных.\n\n"
+        "Вы можете удалить все свои данные\n"
+        "в разделе ⚙️ Настройки.\n\n"
         "Важно: бот не ставит медицинские диагнозы\n"
         "и не заменяет профессиональную помощь."
     )
