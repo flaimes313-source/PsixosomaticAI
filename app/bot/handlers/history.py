@@ -215,4 +215,226 @@ async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession
         )
 
 
-# ... остальные обработчики (back_to_history, refresh_history_list, clear_history, back_to_menu) остаются без изменений
+@router.callback_query(F.data == "back_to_history")
+async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession):
+    """Возврат к списку анализов."""
+    await callback.answer()
+    
+    try:
+        # Находим пользователя
+        result = await db_session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await callback.message.edit_text(
+                "⚠️ Пожалуйста, отправьте /start",
+                reply_markup=None,
+            )
+            return
+        
+        # Определяем часовой пояс пользователя
+        try:
+            user_tz = ZoneInfo(user.timezone or "UTC")
+        except:
+            user_tz = ZoneInfo("UTC")
+        
+        # Получаем анализы
+        analysis_repo = AnalysisRepository(db_session)
+        analyses = await analysis_repo.get_by_user_id(user.id, limit=10)
+        
+        if not analyses:
+            await callback.message.edit_text(
+                "📋 У вас пока нет сохраненных анализов.",
+                reply_markup=None,
+            )
+            return
+        
+        total = await analysis_repo.get_count_by_user(user.id)
+        
+        history_text = (
+            f"📋 Ваша история (последние {len(analyses)} из {total}):\n\n"
+            "Нажмите на анализ для просмотра:"
+        )
+        
+        keyboard = get_analysis_buttons(analyses, user_tz)
+        await callback.message.edit_text(history_text, reply_markup=keyboard)
+        
+    except Exception as e:
+        logger.error(f"Error in back_to_history: {e}")
+        await callback.message.edit_text(
+            "❌ Ошибка загрузки истории.",
+            reply_markup=None,
+        )
+
+
+@router.callback_query(F.data == "history_refresh")
+async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession):
+    """Обновление списка анализов."""
+    await callback.answer("Обновляю...")
+    
+    try:
+        # Находим пользователя
+        result = await db_session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await callback.message.edit_text(
+                "⚠️ Пожалуйста, отправьте /start",
+                reply_markup=None,
+            )
+            return
+        
+        # Определяем часовой пояс пользователя
+        try:
+            user_tz = ZoneInfo(user.timezone or "UTC")
+        except:
+            user_tz = ZoneInfo("UTC")
+        
+        # Получаем анализы
+        analysis_repo = AnalysisRepository(db_session)
+        analyses = await analysis_repo.get_by_user_id(user.id, limit=10)
+        
+        if not analyses:
+            await callback.message.edit_text(
+                "📋 У вас пока нет сохраненных анализов.",
+                reply_markup=None,
+            )
+            return
+        
+        total = await analysis_repo.get_count_by_user(user.id)
+        
+        history_text = (
+            f"📋 Ваша история (последние {len(analyses)} из {total}):\n\n"
+            "Нажмите на анализ для просмотра:"
+        )
+        
+        keyboard = get_analysis_buttons(analyses, user_tz)
+        await callback.message.edit_text(history_text, reply_markup=keyboard)
+        
+    except Exception as e:
+        logger.error(f"Error in refresh_history: {e}")
+        await callback.message.edit_text(
+            "❌ Ошибка обновления.",
+            reply_markup=None,
+        )
+
+
+# ==================== ОЧИСТКА ИСТОРИИ ====================
+
+@router.callback_query(F.data == "clear_history")
+async def confirm_clear_history(callback: CallbackQuery):
+    """Подтверждение очистки истории."""
+    await callback.answer()
+    
+    confirm_keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Да, удалить все",
+                    callback_data="confirm_clear_history"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Отмена",
+                    callback_data="back_to_history"
+                ),
+            ]
+        ]
+    )
+    
+    await callback.message.edit_text(
+        "⚠️ Вы уверены, что хотите удалить ВСЮ историю анализов?\n\n"
+        "Это действие нельзя отменить. Все анализы и уточнения будут удалены.",
+        reply_markup=confirm_keyboard,
+    )
+
+
+@router.callback_query(F.data == "confirm_clear_history")
+async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
+    """Очистка всей истории пользователя."""
+    await callback.answer("Удаляю историю...")
+    
+    try:
+        # Находим пользователя
+        result = await db_session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await callback.message.edit_text(
+                "⚠️ Пользователь не найден.",
+                reply_markup=None,
+            )
+            return
+        
+        # Получаем все анализы пользователя
+        analysis_repo = AnalysisRepository(db_session)
+        analyses = await analysis_repo.get_by_user_id(user.id, limit=1000)
+        
+        count = len(analyses)
+        
+        if count == 0:
+            await callback.message.edit_text(
+                "📋 У вас нет анализов для удаления.",
+                reply_markup=None,
+            )
+            return
+        
+        # Удаляем все анализы (уточнения удалятся каскадно)
+        for analysis in analyses:
+            await db_session.delete(analysis)
+        
+        await db_session.commit()
+        
+        # Показываем сообщение об успехе
+        await callback.message.edit_text(
+            f"✅ Удалено {count} анализов.\n\n"
+            "Ваша история очищена.",
+            reply_markup=None,
+        )
+        
+        # Возвращаемся в главное меню
+        await callback.message.answer(
+            "Главное меню:",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        
+        logger.info(f"User cleared history: user_id={user.id}, count={count}")
+        
+    except Exception as e:
+        logger.error(f"Error in clear_history: {e}")
+        await callback.message.edit_text(
+            "❌ Произошла ошибка при очистке истории.",
+            reply_markup=None,
+        )
+        await callback.message.answer(
+            "Главное меню:",
+            reply_markup=get_main_menu_keyboard(),
+        )
+
+
+@router.callback_query(F.data == "back_to_menu")
+async def back_to_main_menu(callback: CallbackQuery):
+    """Возврат в главное меню."""
+    await callback.answer()
+    
+    try:
+        await callback.message.edit_text(
+            "Главное меню:",
+            reply_markup=None,
+        )
+        await callback.message.answer(
+            "Главное меню:",
+            reply_markup=get_main_menu_keyboard(),
+        )
+    except Exception as e:
+        logger.error(f"Error in back_to_menu: {e}")
+        await callback.message.delete()
+        await callback.message.answer(
+            "Главное меню:",
+            reply_markup=get_main_menu_keyboard(),
+        )
