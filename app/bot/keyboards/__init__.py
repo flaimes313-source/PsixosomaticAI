@@ -19,3 +19,7 @@ from .stress import (
     get_stress_cancel_keyboard,
     get_stress_result_keyboard,
 )
+from .timezone import (
+    get_timezone_keyboard,
+    get_timezone_skip_keyboard,
+)

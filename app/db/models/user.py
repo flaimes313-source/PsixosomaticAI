@@ -52,6 +52,9 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # НОВОЕ ПОЛЕ: часовой пояс пользователя
+    timezone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="UTC")
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, telegram_id={self.telegram_id}, username={self.username})>"
