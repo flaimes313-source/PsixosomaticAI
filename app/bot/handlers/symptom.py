@@ -17,6 +17,7 @@ from app.bot.keyboards import (
     get_question_keyboard,
 )
 from app.services.ai_service import ai_service
+from app.services.safety import safety_service, SafetyLevel
 from app.utils.logging import logger
 from app.utils.formatter import format_analysis_for_telegram
 
@@ -238,6 +239,30 @@ async def process_context(message: types.Message, state: FSMContext, db_session:
     context_desc = data.get("context", "Не указано")
     telegram_id = message.from_user.id
     
+    # ==================== SAFETY ПРОВЕРКА ПЕРЕД AI ====================
+    safety_result = safety_service.check_context(
+        symptom=symptom,
+        duration=duration,
+        intensity=intensity,
+        context=context_desc
+    )
+    
+    # Если CRITICAL — останавливаем AI
+    if safety_result.level == SafetyLevel.CRITICAL:
+        await message.answer(
+            safety_result.warning or "⚠️ Обнаружены симптомы, требующие медицинского внимания.",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        await state.clear()
+        logger.info(f"Safety critical: {safety_result.reason}, user={telegram_id}")
+        return
+    
+    # Если WARNING — сохраняем предупреждение для финального ответа
+    safety_warning = None
+    if safety_result.level == SafetyLevel.WARNING:
+        safety_warning = safety_result.warning
+        await state.update_data(safety_warning=safety_warning)
+    
     loading_message = await message.answer(
         "🧠 Анализирую ваш симптом...\n\n"
         "Это может занять несколько секунд.\n"
@@ -258,7 +283,10 @@ async def process_context(message: types.Message, state: FSMContext, db_session:
         await loading_message.delete()
         
         if result["success"]:
-            analysis = result["analysis"]  # Это уже AnalysisResult
+            analysis = result["analysis"]
+            
+            # ==================== SAFETY ПРОВЕРКА ПОСЛЕ AI ====================
+            safety_output = safety_service.check_output(analysis.summary)
             
             # Сохраняем данные для уточнений в FSM
             await state.update_data(
@@ -271,6 +299,13 @@ async def process_context(message: types.Message, state: FSMContext, db_session:
             
             # Форматируем для Telegram
             result_text = format_analysis_for_telegram(analysis)
+            
+            # Добавляем предупреждение если есть
+            if safety_warning:
+                result_text += f"\n\n---\n\n{safety_warning}"
+            
+            if safety_output.level == SafetyLevel.WARNING and safety_output.warning:
+                result_text += f"\n\n---\n\n{safety_output.warning}"
             
             save_status = "✅ Сохранено в историю" if result.get("saved") else "⚠️ Не сохранено в историю"
             result_text += f"\n\n{save_status}"
@@ -376,6 +411,18 @@ async def process_clarification(
     telegram_id = message.from_user.id
     clarifications_count = data.get("clarifications_count", 0)
     
+    # ==================== SAFETY ПРОВЕРКА УТОЧНЕНИЯ ====================
+    safety_result = safety_service.check_input(question)
+    
+    if safety_result.level == SafetyLevel.CRITICAL:
+        await message.answer(
+            safety_result.warning or "⚠️ Обнаружены симптомы, требующие медицинского внимания.",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        await state.clear()
+        logger.info(f"Safety critical in clarification: {safety_result.reason}, user={telegram_id}")
+        return
+    
     if clarifications_count >= MAX_CLARIFICATIONS:
         await message.answer(
             "⚠️ Вы уже задали максимальное количество вопросов.\n"
@@ -412,6 +459,18 @@ async def process_clarification(
             elif not isinstance(answer, str):
                 answer = str(answer)
             
+            # ==================== SAFETY ПРОВЕРКА ОТВЕТА AI ====================
+            safety_output = safety_service.check_output(answer)
+            
+            if safety_output.level == SafetyLevel.CRITICAL:
+                await message.answer(
+                    safety_output.warning or "⚠️ Не удалось безопасно сформировать ответ.",
+                    reply_markup=get_main_menu_keyboard(),
+                )
+                await state.clear()
+                logger.info(f"Safety critical in AI output: {safety_output.reason}, user={telegram_id}")
+                return
+            
             clarifications_count += 1
             
             await state.update_data(
@@ -423,6 +482,12 @@ async def process_clarification(
             result_text = (
                 f"❓ Ваш вопрос:\n{question}\n\n"
                 f"📝 Ответ:\n{answer}\n\n"
+            )
+            
+            if safety_output.level == SafetyLevel.WARNING and safety_output.warning:
+                result_text += f"\n---\n\n{safety_output.warning}\n\n"
+            
+            result_text += (
                 "━━━━━━━━━━━━━━━━━━━\n"
                 f"💡 Задано вопросов: {clarifications_count}/{MAX_CLARIFICATIONS}\n"
                 f"{save_status}\n"
