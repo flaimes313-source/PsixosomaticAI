@@ -18,6 +18,7 @@ from app.bot.keyboards import (
 )
 from app.services.ai_service import ai_service
 from app.utils.logging import logger
+from app.utils.formatter import format_analysis_for_telegram
 
 router = Router()
 MAX_CLARIFICATIONS = 3
@@ -213,6 +214,7 @@ async def process_intensity_invalid(message: types.Message, state: FSMContext):
 
 @router.message(SymptomAnalysisStates.waiting_for_context, F.text)
 async def process_context(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Обработка ввода контекста и вызов AI анализа."""
     context = message.text.strip()
     
     if context.startswith('/'):
@@ -256,24 +258,22 @@ async def process_context(message: types.Message, state: FSMContext, db_session:
         await loading_message.delete()
         
         if result["success"]:
-            analysis = result["analysis"]
-            analysis_id = result.get("analysis_id")
-            user_id = result.get("user_id")
+            analysis = result["analysis"]  # Это уже AnalysisResult
             
+            # Сохраняем данные для уточнений в FSM
             await state.update_data(
-                analysis=analysis,
-                analysis_id=analysis_id,
-                user_id=user_id,
+                analysis=analysis.summary,
+                analysis_id=result.get("analysis_id"),
+                user_id=result.get("user_id"),
                 clarifications_count=0,
                 is_clarification_mode=True,
             )
             
-            result_text = (
-                f"🧠 Результат анализа:\n\n{analysis}\n\n"
-                "━━━━━━━━━━━━━━━━━━━\n"
-                "💡 Вы можете задать до 3 уточняющих вопросов.\n"
-                "Нажмите кнопку ниже, чтобы спросить."
-            )
+            # Форматируем для Telegram
+            result_text = format_analysis_for_telegram(analysis)
+            
+            save_status = "✅ Сохранено в историю" if result.get("saved") else "⚠️ Не сохранено в историю"
+            result_text += f"\n\n{save_status}"
             
             keyboard = get_clarification_keyboard(
                 questions_asked=0,
@@ -283,6 +283,7 @@ async def process_context(message: types.Message, state: FSMContext, db_session:
             await message.answer(
                 result_text,
                 reply_markup=keyboard,
+                parse_mode="Markdown",
             )
             
             logger.info(f"User completed analysis: telegram_id={telegram_id}")

@@ -1,13 +1,17 @@
 """
 AI сервис для работы с YandexGPT.
 """
+import json
+import re
 from typing import Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.services.yandex_gpt import YandexGPTClient, YandexGPTError
 from app.db.repositories.analysis import AnalysisRepository
+from app.db.repositories.clarification import ClarificationRepository
 from app.db.models.user import User
+from app.schemas.analysis import AnalysisResult
 from app.utils.logging import logger
 
 
@@ -21,7 +25,6 @@ class AIService:
         """Формирует системный промпт для YandexGPT."""
         return """
 
-```text
 Ты — AI-помощник проекта «Психосоматика: Помощник в кармане».
 
 Твоя задача — помогать человеку исследовать возможную связь между телесными ощущениями, эмоциональным состоянием, стрессом и образом жизни, находить возможные психологические факторы и определять безопасные действия, которые можно попробовать самостоятельно.
@@ -323,10 +326,26 @@ class AIService:
 Меньше теории. Больше диалога.
 Меньше уверенных диагнозов. Больше проверяемых гипотез.
 Меньше воды. Больше конкретных действий.
-```
 
+**ВАЖНО: ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!**
 
-Важно: Всегда напоминай, что это не медицинский диагноз.
+Структура ответа:
+{
+    "summary": "Краткое резюме симптома и возможной связи (2-3 предложения)",
+    "possible_factors": ["фактор 1", "фактор 2", "фактор 3"],
+    "possible_patterns": ["паттерн 1", "паттерн 2"],
+    "check_question": "Вопрос для самопроверки (или null)",
+    "micro_action": "Маленькое практическое действие (или null)",
+    "things_to_observe": ["что наблюдать 1", "что наблюдать 2"],
+    "medical_warning": "Медицинское предупреждение или null"
+}
+
+Правила для JSON:
+1. possible_factors - минимум 2, максимум 5
+2. things_to_observe - минимум 2, максимум 4
+3. medical_warning - если есть тревожные симптомы, иначе null
+4. micro_action - конкретное действие, которое можно сделать за 2-3 дня
+5. check_question - вопрос для самопроверки или null
 """
 
     def _build_user_prompt(
@@ -338,18 +357,14 @@ class AIService:
     ) -> str:
         """Формирует пользовательский промпт."""
         return f"""
-Пользователь обратился с таким симптомом:
+Проанализируй следующий симптом и дай структурированный ответ в JSON:
 
 Симптом: {symptom}
 Длительность: {duration}
 Интенсивность: {intensity}/10
 Контекст: {context}
 
-Пожалуйста, дай бережный психосоматический анализ
-этого симптома на основе предоставленной информации.
-
-Помни: ты не ставишь диагнозы,
-а только предлагаешь возможные связи
+Помни: ты не ставишь диагнозы, а только предлагаешь возможные связи
 между симптомом и эмоциональным состоянием.
 """
 
@@ -383,6 +398,61 @@ class AIService:
 Будь бережным, не ставь диагнозов.
 """
 
+    def _parse_response(self, response: str) -> AnalysisResult:
+        """
+        Парсит ответ YandexGPT в структурированный объект.
+        """
+        try:
+            # Пробуем найти JSON в тексте
+            json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                # Пробуем извлечь полный JSON
+                brace_count = 0
+                start = -1
+                for i, char in enumerate(response):
+                    if char == '{':
+                        if brace_count == 0:
+                            start = i
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0 and start != -1:
+                            json_str = response[start:i+1]
+                            break
+                
+                data = json.loads(json_str)
+                return AnalysisResult(**data)
+            else:
+                # Если JSON не найден, пробуем распарсить весь текст
+                data = json.loads(response)
+                return AnalysisResult(**data)
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from YandexGPT: {e}")
+            logger.error(f"Response: {response[:500]}")
+            # Возвращаем результат с текстом ошибки
+            return AnalysisResult(
+                summary=f"Не удалось распарсить ответ AI. Пожалуйста, попробуйте позже.",
+                possible_factors=[],
+                possible_patterns=[],
+                check_question=None,
+                micro_action=None,
+                things_to_observe=[],
+                medical_warning="Произошла ошибка при обработке ответа. Если симптомы беспокоят, обратитесь к врачу."
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error parsing response: {e}")
+            return AnalysisResult(
+                summary=f"Произошла ошибка при обработке ответа. Попробуйте позже.",
+                possible_factors=[],
+                possible_patterns=[],
+                check_question=None,
+                micro_action=None,
+                things_to_observe=[],
+                medical_warning="Если симптомы беспокоят, обратитесь к врачу."
+            )
+
     async def analyze_symptom(
         self,
         symptom: str,
@@ -391,7 +461,7 @@ class AIService:
         context: str,
     ) -> Dict[str, Any]:
         """
-        Анализирует симптом через YandexGPT (без сохранения в БД).
+        Анализирует симптом через YandexGPT и возвращает структурированный результат.
         """
         logger.info(f"AI analysis started: symptom={symptom[:30]}..., intensity={intensity}")
 
@@ -410,10 +480,14 @@ class AIService:
             )
 
             logger.info("AI analysis completed successfully")
-
+            
+            # Парсим ответ
+            result = self._parse_response(response)
+            
             return {
                 "success": True,
-                "analysis": response,
+                "analysis": result,
+                "raw_response": response,
                 "error": None,
             }
 
@@ -422,6 +496,7 @@ class AIService:
             return {
                 "success": False,
                 "analysis": None,
+                "raw_response": None,
                 "error": str(e),
             }
 
@@ -430,6 +505,7 @@ class AIService:
             return {
                 "success": False,
                 "analysis": None,
+                "raw_response": None,
                 "error": "Произошла непредвиденная ошибка при анализе.",
             }
 
@@ -477,7 +553,6 @@ class AIService:
             # Сохраняем в БД, если переданы параметры
             if db_session and analysis_id and user_id:
                 try:
-                    from app.db.repositories.clarification import ClarificationRepository
                     repo = ClarificationRepository(db_session)
                     
                     clarification = await repo.create(
@@ -572,13 +647,17 @@ class AIService:
         try:
             analysis_repo = AnalysisRepository(db_session)
             
+            # Преобразуем AnalysisResult в текст для сохранения
+            analysis_obj = result["analysis"]
+            analysis_text = format_analysis_for_db(analysis_obj)
+            
             analysis = await analysis_repo.create(
                 user_id=user.id,
                 symptom=symptom,
                 duration=duration,
                 intensity=intensity,
                 context=context,
-                analysis=result["analysis"],
+                analysis=analysis_text,
             )
             
             result["saved"] = True
@@ -593,6 +672,44 @@ class AIService:
             result["save_error"] = str(e)
 
         return result
+
+
+def format_analysis_for_db(analysis: AnalysisResult) -> str:
+    """
+    Форматирует AnalysisResult для сохранения в БД.
+    """
+    text = f"{analysis.summary}\n\n"
+    
+    if analysis.possible_factors:
+        text += "Возможные факторы:\n"
+        for factor in analysis.possible_factors:
+            text += f"• {factor}\n"
+        text += "\n"
+    
+    if analysis.possible_patterns:
+        text += "Возможные паттерны:\n"
+        for pattern in analysis.possible_patterns:
+            text += f"• {pattern}\n"
+        text += "\n"
+    
+    if analysis.check_question:
+        text += f"Вопрос для самопроверки:\n{analysis.check_question}\n\n"
+    
+    if analysis.micro_action:
+        text += f"Что попробовать:\n{analysis.micro_action}\n\n"
+    
+    if analysis.things_to_observe:
+        text += "За чем понаблюдать:\n"
+        for item in analysis.things_to_observe:
+            text += f"• {item}\n"
+        text += "\n"
+    
+    if analysis.medical_warning:
+        text += f"⚠️ {analysis.medical_warning}\n\n"
+    
+    text += "⚠️ Важно: это не медицинский диагноз."
+    
+    return text
 
 
 # Создаем глобальный экземпляр сервиса
