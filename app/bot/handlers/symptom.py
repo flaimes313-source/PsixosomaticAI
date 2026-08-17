@@ -373,7 +373,7 @@ async def process_clarification(
     context = data.get("context", "Не указано")
     previous_analysis = data.get("analysis", "")
     analysis_id = data.get("analysis_id")
-    user_id = data.get("user_id") or message.from_user.id
+    telegram_id = message.from_user.id
     clarifications_count = data.get("clarifications_count", 0)
     
     if clarifications_count >= MAX_CLARIFICATIONS:
@@ -398,7 +398,7 @@ async def process_clarification(
             previous_analysis=previous_analysis,
             question=question,
             analysis_id=analysis_id,
-            user_id=user_id,
+            telegram_id=telegram_id,
             db_session=db_session,
         )
         
@@ -407,7 +407,6 @@ async def process_clarification(
         if result["success"]:
             answer = result.get("answer", "Не удалось получить ответ")
             
-            # Если ответ - объект AnalysisResult, извлекаем текст
             if hasattr(answer, 'summary'):
                 answer = answer.summary
             elif not isinstance(answer, str):

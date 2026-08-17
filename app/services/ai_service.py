@@ -206,7 +206,6 @@ class AIService:
     ) -> str:
         """
         Формирует промпт для уточняющего вопроса.
-        Теперь в свободном диалоговом формате (без JSON).
         """
         return f"""
 Ранее пользователь обратился с таким симптомом:
@@ -228,11 +227,8 @@ class AIService:
 """
 
     def _parse_response(self, response: str) -> AnalysisResult:
-        """
-        Парсит ответ YandexGPT в структурированный объект.
-        """
+        """Парсит ответ YandexGPT в структурированный объект."""
         try:
-            # Пробуем найти JSON в тексте
             brace_count = 0
             start = -1
             for i, char in enumerate(response):
@@ -246,7 +242,6 @@ class AIService:
                         json_str = response[start:i+1]
                         break
             else:
-                # Если не нашли JSON, пробуем распарсить весь текст
                 data = json.loads(response)
                 return AnalysisResult(**data)
             
@@ -284,9 +279,7 @@ class AIService:
         intensity: int,
         context: str,
     ) -> Dict[str, Any]:
-        """
-        Анализирует симптом через YandexGPT и возвращает структурированный результат.
-        """
+        """Анализирует симптом через YandexGPT."""
         logger.info(f"AI analysis started: symptom={symptom[:30]}..., intensity={intensity}")
 
         try:
@@ -341,12 +334,11 @@ class AIService:
         previous_analysis: str,
         question: str,
         analysis_id: Optional[int] = None,
-        user_id: Optional[int] = None,
+        telegram_id: Optional[int] = None,
         db_session: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
         """
-        Отвечает на уточняющий вопрос пользователя.
-        Возвращает обычный текст (свободный диалог).
+        Отвечает на уточняющий вопрос пользователя и сохраняет в БД.
         """
         logger.info(f"Clarification started: question={question[:30]}...")
 
@@ -375,13 +367,26 @@ class AIService:
                 "error": None,
             }
             
-            if db_session and analysis_id and user_id:
+            # Сохраняем в БД
+            if db_session and analysis_id and telegram_id:
                 try:
+                    # Находим пользователя по telegram_id
+                    user_result = await db_session.execute(
+                        select(User).where(User.telegram_id == telegram_id)
+                    )
+                    user = user_result.scalar_one_or_none()
+                    
+                    if not user:
+                        logger.error(f"User not found for telegram_id: {telegram_id}")
+                        result["saved"] = False
+                        result["save_error"] = "User not found"
+                        return result
+                    
                     repo = ClarificationRepository(db_session)
                     
                     clarification = await repo.create(
                         analysis_id=analysis_id,
-                        user_id=user_id,
+                        user_id=user.id,  # id из БД
                         question=question,
                         answer=response,
                     )
@@ -425,9 +430,7 @@ class AIService:
         context: str,
         db_session: AsyncSession,
     ) -> Dict[str, Any]:
-        """
-        Анализирует симптом и сохраняет результат в БД.
-        """
+        """Анализирует симптом и сохраняет результат в БД."""
         logger.info(f"analyze_and_save called: telegram_id={telegram_id}, symptom={symptom[:30]}...")
         
         try:
@@ -497,9 +500,7 @@ class AIService:
 
 
 def format_analysis_for_db(analysis: AnalysisResult) -> str:
-    """
-    Форматирует AnalysisResult для сохранения в БД.
-    """
+    """Форматирует AnalysisResult для сохранения в БД."""
     text = f"{analysis.summary}\n\n"
     
     if analysis.possible_factors:
