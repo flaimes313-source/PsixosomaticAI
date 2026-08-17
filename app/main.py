@@ -8,17 +8,17 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand
 import uvicorn
 
-from app.config import settings
+from app.config import settings as config_settings
 from app.utils.logging import setup_logging, logger
 from app.bot.middlewares import DBSessionMiddleware
-from app.bot.handlers import start, menu, help, privacy, symptom, cancel, history, stress, settings
+from app.bot.handlers import start, menu, help, privacy, symptom, cancel, history, stress, settings as settings_handler
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
 from app.db.database import check_db_connection, engine
 
 
 # Настройка логирования
-logger = setup_logging(settings.LOG_LEVEL)
+logger = setup_logging(config_settings.LOG_LEVEL)
 
 
 async def setup_bot_commands(bot: Bot) -> None:
@@ -46,7 +46,7 @@ async def main() -> None:
     logger.info("Database connection OK")
     
     # Создаем экземпляр бота
-    bot = Bot(token=settings.BOT_TOKEN)
+    bot = Bot(token=config_settings.BOT_TOKEN)
     
     # Создаем диспетчер
     dp = Dispatcher()
@@ -62,7 +62,7 @@ async def main() -> None:
     dp.include_router(privacy.router)
     dp.include_router(symptom.router)   # Сценарий "Разобрать симптом"
     dp.include_router(stress.router)    # Сценарий "Проверить стресс"
-    dp.include_router(settings.router)  # Сценарий "Настройки"
+    dp.include_router(settings_handler.router)  # Сценарий "Настройки"
     dp.include_router(cancel.router)    # Команда /cancel
     dp.include_router(history.router)   # История анализов
     dp.include_router(errors_router)    # Глобальный обработчик ошибок
@@ -72,11 +72,11 @@ async def main() -> None:
     await setup_bot_commands(bot)
     
     # Запускаем FastAPI сервер в фоне
-    logger.info(f"Starting FastAPI server on {settings.API_HOST}:{settings.API_PORT}")
+    logger.info(f"Starting FastAPI server on {config_settings.API_HOST}:{config_settings.API_PORT}")
     config = uvicorn.Config(
         fastapi_app,
-        host=settings.API_HOST,
-        port=settings.API_PORT,
+        host=config_settings.API_HOST,
+        port=config_settings.API_PORT,
         log_level="warning",
     )
     server = uvicorn.Server(config)
