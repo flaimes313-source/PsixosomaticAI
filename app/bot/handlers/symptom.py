@@ -405,7 +405,14 @@ async def process_clarification(
         await loading_message.delete()
         
         if result["success"]:
-            answer = result["answer"]  # Это AnalysisResult
+            answer = result.get("answer", "Не удалось получить ответ")
+            
+            # Если ответ - объект AnalysisResult, извлекаем текст
+            if hasattr(answer, 'summary'):
+                answer = answer.summary
+            elif not isinstance(answer, str):
+                answer = str(answer)
+            
             clarifications_count += 1
             
             await state.update_data(
@@ -414,12 +421,9 @@ async def process_clarification(
             
             save_status = "✅ Сохранено в историю" if result.get("saved") else "⚠️ Не сохранено"
             
-            # Используем форматтер для красивого вывода
-            formatted_answer = format_analysis_for_telegram(answer)
-            
             result_text = (
                 f"❓ Ваш вопрос:\n{question}\n\n"
-                f"{formatted_answer}\n\n"
+                f"📝 Ответ:\n{answer}\n\n"
                 "━━━━━━━━━━━━━━━━━━━\n"
                 f"💡 Задано вопросов: {clarifications_count}/{MAX_CLARIFICATIONS}\n"
                 f"{save_status}\n"
@@ -434,7 +438,6 @@ async def process_clarification(
             await message.answer(
                 result_text,
                 reply_markup=keyboard,
-                parse_mode="Markdown",
             )
             
             logger.info(
