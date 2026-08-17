@@ -154,7 +154,7 @@ class AIService:
 Меньше уверенных диагнозов. Больше проверяемых гипотез.
 Меньше воды. Больше конкретных действий.
 
-**ВАЖНО: ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!**
+**ВАЖНО: ДЛЯ ПЕРВИЧНОГО АНАЛИЗА ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!**
 
 Структура ответа:
 {
@@ -206,7 +206,7 @@ class AIService:
     ) -> str:
         """
         Формирует промпт для уточняющего вопроса.
-        Теперь тоже требует JSON для структурированного ответа.
+        Теперь в свободном диалоговом формате (без JSON).
         """
         return f"""
 Ранее пользователь обратился с таким симптомом:
@@ -222,22 +222,9 @@ class AIService:
 Теперь пользователь задает уточняющий вопрос:
 "{question}"
 
-Ответь на вопрос пользователя, основываясь на контексте.
-
-**ВАЖНО: ОТВЕЧАЙ В ФОРМАТЕ JSON!**
-
-Структура ответа для уточнения:
-{{
-    "summary": "Краткий ответ на вопрос пользователя (2-3 предложения)",
-    "possible_factors": ["фактор 1", "фактор 2"],
-    "possible_patterns": ["паттерн 1", "паттерн 2"],
-    "check_question": "Вопрос для дальнейшего самоисследования (или null)",
-    "micro_action": "Конкретное действие (или null)",
-    "things_to_observe": ["что наблюдать 1", "что наблюдать 2"],
-    "medical_warning": "Медицинское предупреждение или null"
-}}
-
-Помни: ты не ставишь диагнозы. Будь бережным и поддерживающим.
+Ответь на вопрос пользователя естественно и развернуто, как в диалоге.
+Будь бережным, поддерживающим, не ставь диагнозов.
+Говори на русском языке, просто и понятно.
 """
 
     def _parse_response(self, response: str) -> AnalysisResult:
@@ -269,7 +256,6 @@ class AIService:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON from YandexGPT: {e}")
             logger.error(f"Response: {response[:500]}")
-            # Возвращаем результат с текстом ошибки
             return AnalysisResult(
                 summary=f"Не удалось распарсить ответ AI. Пожалуйста, попробуйте позже.",
                 possible_factors=[],
@@ -319,7 +305,6 @@ class AIService:
 
             logger.info("AI analysis completed successfully")
             
-            # Парсим ответ
             result = self._parse_response(response)
             
             return {
@@ -361,7 +346,7 @@ class AIService:
     ) -> Dict[str, Any]:
         """
         Отвечает на уточняющий вопрос пользователя.
-        Теперь возвращает структурированный JSON ответ.
+        Возвращает обычный текст (свободный диалог).
         """
         logger.info(f"Clarification started: question={question[:30]}...")
 
@@ -383,29 +368,22 @@ class AIService:
 
             logger.info("Clarification completed successfully")
             
-            # Парсим ответ в структурированный объект
-            result_obj = self._parse_response(response)
-            
             result = {
                 "success": True,
-                "answer": result_obj,
+                "answer": response,
                 "raw_response": response,
                 "error": None,
             }
             
-            # Сохраняем в БД, если переданы параметры
             if db_session and analysis_id and user_id:
                 try:
                     repo = ClarificationRepository(db_session)
-                    
-                    # Форматируем для сохранения в БД
-                    clarification_text = format_analysis_for_db(result_obj)
                     
                     clarification = await repo.create(
                         analysis_id=analysis_id,
                         user_id=user_id,
                         question=question,
-                        answer=clarification_text,
+                        answer=response,
                     )
                     
                     result["saved"] = True
@@ -452,7 +430,6 @@ class AIService:
         """
         logger.info(f"analyze_and_save called: telegram_id={telegram_id}, symptom={symptom[:30]}...")
         
-        # Находим пользователя
         try:
             result = await db_session.execute(
                 select(User).where(User.telegram_id == telegram_id)
@@ -479,7 +456,6 @@ class AIService:
                 "error": f"Ошибка поиска пользователя: {str(e)}",
             }
 
-        # Получаем анализ от AI
         result = await self.analyze_symptom(
             symptom=symptom,
             duration=duration,
@@ -491,11 +467,9 @@ class AIService:
             result["saved"] = False
             return result
 
-        # Сохраняем в БД
         try:
             analysis_repo = AnalysisRepository(db_session)
             
-            # Преобразуем AnalysisResult в текст для сохранения
             analysis_obj = result["analysis"]
             analysis_text = format_analysis_for_db(analysis_obj)
             
