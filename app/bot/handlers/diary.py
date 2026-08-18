@@ -940,7 +940,11 @@ async def edit_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
             note=entry.note,
         )
         
-        await callback.message.edit_text(
+        # Удаляем старое сообщение с клавиатурой
+        await callback.message.delete()
+        
+        # Отправляем новое сообщение с обычной клавиатурой
+        await callback.message.answer(
             f"✏️ Редактируем запись #{entry_id}\n\n"
             "1/7: Опишите симптом\n\n"
             f"Было: {entry.symptom}\n\n"
@@ -950,9 +954,9 @@ async def edit_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
         
     except Exception as e:
         logger.error(f"Error editing diary entry: {e}")
-        await callback.message.edit_text(
+        await callback.message.answer(
             "⚠️ Не удалось загрузить запись для редактирования.",
-            reply_markup=None,
+            reply_markup=get_cancel_keyboard(),
         )
 
 
