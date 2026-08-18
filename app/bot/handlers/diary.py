@@ -34,6 +34,15 @@ MAX_SYMPTOM_LENGTH = 500
 MAX_TEXT_LENGTH = 2000
 
 
+def get_user_timezone(user) -> ZoneInfo:
+    """Возвращает часовой пояс пользователя."""
+    user_tz_str = user.timezone or "UTC"
+    try:
+        return ZoneInfo(user_tz_str)
+    except:
+        return ZoneInfo("UTC")
+
+
 # ==================== ГЛАВНОЕ МЕНЮ ДНЕВНИКА ====================
 
 @router.message(F.text == "📔 Дневник")
@@ -448,9 +457,14 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
         
         await state.clear()
         
+        # Получаем часовой пояс пользователя
+        user_tz = get_user_timezone(user)
+        created_at_local = entry.created_at.astimezone(user_tz)
+        time_str = created_at_local.strftime("%H:%M")
+        
         await callback.message.edit_text(
             f"✅ Запись сохранена!\n\n"
-            f"📅 {entry.entry_date.strftime('%d.%m.%Y')}\n"
+            f"📅 {entry.entry_date.strftime('%d.%m.%Y')} {time_str}\n"
             f"🩺 {entry.symptom} — {entry.symptom_intensity}/10\n"
             f"🙂 Настроение: {entry.mood}/5\n"
             f"😰 Стресс: {entry.stress}/10\n"
@@ -565,11 +579,12 @@ async def show_today_entries(message: types.Message, db_session: AsyncSession):
             return
         
         today = date.today()
+        user_tz = get_user_timezone(user)
         
         text = f"📅 Сегодня ({today.strftime('%d.%m.%Y')})\n\n"
         
         for entry in entries:
-            time_str = entry.created_at.strftime("%H:%M")
+            time_str = entry.created_at.astimezone(user_tz).strftime("%H:%M")
             text += (
                 f"🕐 {time_str}\n"
                 f"🩺 {entry.symptom} — {entry.symptom_intensity}/10\n"
@@ -706,10 +721,11 @@ async def show_entries_for_date(callback: CallbackQuery, db_session: AsyncSessio
             )
             return
         
+        user_tz = get_user_timezone(user)
         text = f"📅 {entry_date.strftime('%d.%m.%Y')}\n\n"
         
         for entry in entries:
-            time_str = entry.created_at.strftime("%H:%M")
+            time_str = entry.created_at.astimezone(user_tz).strftime("%H:%M")
             text += (
                 f"🕐 {time_str}\n"
                 f"🩺 {entry.symptom} — {entry.symptom_intensity}/10\n"
@@ -863,9 +879,13 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
             )
             return
         
+        user_tz = get_user_timezone(user)
+        created_at_local = entry.created_at.astimezone(user_tz)
+        time_str = created_at_local.strftime("%H:%M")
+        
         text = (
             f"📔 Запись #{entry.id}\n\n"
-            f"📅 {entry.entry_date.strftime('%d.%m.%Y')} {entry.created_at.strftime('%H:%M')}\n\n"
+            f"📅 {entry.entry_date.strftime('%d.%m.%Y')} {time_str}\n\n"
             f"🩺 Симптом: {entry.symptom}\n"
             f"📊 Интенсивность: {entry.symptom_intensity}/10\n"
             f"🙂 Настроение: {entry.mood}/5\n"
