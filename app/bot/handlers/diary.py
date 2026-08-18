@@ -499,13 +499,10 @@ async def edit_diary_entry(callback: CallbackQuery, state: FSMContext):
     """Возврат к редактированию."""
     await callback.answer("Возвращаемся к редактированию...")
     
-    # Очищаем состояние confirming
-    await state.set_state(DiaryStates.waiting_for_symptom)
-    
-    # ❗ УДАЛЯЕМ сообщение с inline-клавиатурой
+    # Удаляем сообщение с предпросмотром
     await callback.message.delete()
     
-    # ❗ ОТПРАВЛЯЕМ новое сообщение с обычной клавиатурой
+    # Показываем первый вопрос
     await callback.message.answer(
         "✏️ Давайте исправим запись.\n\n"
         "1/7: Опишите ваш симптом или состояние.",
