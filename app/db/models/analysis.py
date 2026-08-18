@@ -18,6 +18,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.db.models.clarification import Clarification
     from app.db.models.diary import DiaryEntry
+    from app.db.models.user import User
 
 
 class Analysis(Base):
@@ -52,12 +53,15 @@ class Analysis(Base):
     )
     
     # Связи
+    user: Mapped["User"] = relationship("User", back_populates="analyses")
+    
     clarifications: Mapped[List["Clarification"]] = relationship(
         "Clarification",
         back_populates="analysis",
         cascade="all, delete-orphan",
         order_by="Clarification.created_at",
     )
+    
     diary_entries: Mapped[List["DiaryEntry"]] = relationship(
         "DiaryEntry",
         back_populates="analysis",
@@ -67,8 +71,3 @@ class Analysis(Base):
 
     def __repr__(self) -> str:
         return f"<Analysis(id={self.id}, user_id={self.user_id}, symptom={self.symptom[:30]})>"
-
-
-# Импорт для избежания циклических ссылок
-from app.db.models.clarification import Clarification
-from app.db.models.diary import DiaryEntry

@@ -13,9 +13,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, date
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.db.models.analysis import Analysis
+    from app.db.models.user import User
 
 
 class DiaryEntry(Base):
@@ -38,10 +42,10 @@ class DiaryEntry(Base):
     
     # Данные записи
     symptom: Mapped[str] = mapped_column(Text, nullable=False)
-    symptom_intensity: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-10
-    mood: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-5
-    stress: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-10
-    sleep_hours: Mapped[float] = mapped_column(Float, nullable=False)  # 0-24
+    symptom_intensity: Mapped[int] = mapped_column(Integer, nullable=False)
+    mood: Mapped[int] = mapped_column(Integer, nullable=False)
+    stress: Mapped[int] = mapped_column(Integer, nullable=False)
+    sleep_hours: Mapped[float] = mapped_column(Float, nullable=False)
     
     context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -71,8 +75,3 @@ class DiaryEntry(Base):
 
     def __repr__(self) -> str:
         return f"<DiaryEntry(id={self.id}, user_id={self.user_id}, entry_date={self.entry_date})>"
-
-
-# Импорт для избежания циклических ссылок
-from app.db.models.analysis import Analysis
-from app.db.models.user import User

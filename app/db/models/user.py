@@ -11,9 +11,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.db.models.analysis import Analysis
+    from app.db.models.diary import DiaryEntry
 
 
 class User(Base):
@@ -71,8 +75,3 @@ class User(Base):
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, telegram_id={self.telegram_id}, username={self.username})>"
-
-
-# Импорт для избежания циклических ссылок
-from app.db.models.analysis import Analysis
-from app.db.models.diary import DiaryEntry
