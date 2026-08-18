@@ -492,6 +492,8 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
         )
 
 
+# ==================== КНОПКА "ИЗМЕНИТЬ" НА ПРЕДПРОСМОТРЕ ====================
+
 @router.callback_query(F.data == "diary_edit")
 async def edit_diary_entry(callback: CallbackQuery, state: FSMContext):
     """Возврат к редактированию."""
@@ -500,7 +502,11 @@ async def edit_diary_entry(callback: CallbackQuery, state: FSMContext):
     # Очищаем состояние confirming
     await state.set_state(DiaryStates.waiting_for_symptom)
     
-    await callback.message.edit_text(
+    # ❗ УДАЛЯЕМ сообщение с inline-клавиатурой
+    await callback.message.delete()
+    
+    # ❗ ОТПРАВЛЯЕМ новое сообщение с обычной клавиатурой
+    await callback.message.answer(
         "✏️ Давайте исправим запись.\n\n"
         "1/7: Опишите ваш симптом или состояние.",
         reply_markup=get_cancel_keyboard(),
@@ -936,11 +942,11 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
         )
 
 
-# ==================== РЕДАКТИРОВАНИЕ ЗАПИСИ ====================
+# ==================== РЕДАКТИРОВАНИЕ ЗАПИСИ (ПОСЛЕ СОХРАНЕНИЯ) ====================
 
 @router.callback_query(F.data.startswith("diary_edit_entry_"))
-async def edit_diary_entry(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Редактирование записи."""
+async def edit_diary_entry_by_id(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Редактирование уже сохранённой записи."""
     await callback.answer()
     
     entry_id = int(callback.data.split("_")[3])
