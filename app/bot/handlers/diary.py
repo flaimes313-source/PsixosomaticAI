@@ -719,7 +719,7 @@ async def show_entries_for_date(callback: CallbackQuery, db_session: AsyncSessio
                 f"🆔 #{entry.id}\n\n"
             )
         
-        # Кнопка "Назад"
+        # Кнопки для просмотра записей и возврата
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -746,20 +746,73 @@ async def show_entries_for_date(callback: CallbackQuery, db_session: AsyncSessio
         )
 
 
+# ==================== ВОЗВРАТ К ИСТОРИИ ====================
+
 @router.callback_query(F.data == "diary_back_to_history")
 async def back_to_diary_history(callback: CallbackQuery, db_session: AsyncSession):
     """Возврат к списку дат."""
     await callback.answer()
     
-    # Создаем объект сообщения и вызываем обработчик
-    class FakeMessage:
-        def __init__(self, user_id):
-            self.from_user = type('obj', (object,), {'id': user_id})
+    telegram_id = callback.from_user.id
     
-    fake_message = FakeMessage(callback.from_user.id)
-    await show_diary_history(fake_message, db_session)
-    
-    await callback.message.delete()
+    try:
+        # Находим пользователя
+        result = await db_session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await callback.message.edit_text(
+                "⚠️ Вы еще не зарегистрированы.\nОтправьте /start",
+                reply_markup=None,
+            )
+            return
+        
+        # Получаем даты с записями
+        diary_repo = DiaryRepository(db_session)
+        dates = await diary_repo.get_dates_with_entries(user.id, limit=15)
+        
+        if not dates:
+            await callback.message.edit_text(
+                "📖 История дневника пуста.",
+                reply_markup=None,
+            )
+            await callback.message.answer(
+                "📔 Мой дневник",
+                reply_markup=get_diary_menu_keyboard(),
+            )
+            return
+        
+        text = "📖 История дневника\n\n"
+        for entry_date, count in dates:
+            text += f"{entry_date.strftime('%d.%m.%Y')} — {count} записей\n"
+        text += "\nНажмите на дату ниже, чтобы посмотреть записи."
+        
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=entry_date.strftime('%d.%m.%Y'),
+                    callback_data=f"diary_date_{entry_date.isoformat()}"
+                )]
+                for entry_date, count in dates[:10]
+            ] + [
+                [InlineKeyboardButton(
+                    text="🔙 Назад в меню",
+                    callback_data="diary_back_to_menu"
+                )]
+            ]
+        )
+        
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        
+    except Exception as e:
+        logger.error(f"Error in back_to_diary_history: {e}")
+        await callback.message.edit_text(
+            "⚠️ Не удалось загрузить историю.",
+            reply_markup=None,
+        )
 
 
 @router.callback_query(F.data == "diary_back_to_menu")
