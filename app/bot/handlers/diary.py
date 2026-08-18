@@ -960,10 +960,10 @@ async def edit_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
             note=entry.note,
         )
         
-        # Удаляем старое сообщение с inline-клавиатурой
+        # ❗ УДАЛЯЕМ сообщение с inline-клавиатурой
         await callback.message.delete()
         
-        # Отправляем новое сообщение с обычной клавиатурой
+        # ❗ ОТПРАВЛЯЕМ новое сообщение с обычной клавиатурой
         await callback.message.answer(
             f"✏️ Редактируем запись #{entry_id}\n\n"
             "1/7: Опишите симптом\n\n"
