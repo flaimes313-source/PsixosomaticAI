@@ -9,9 +9,9 @@ from sqlalchemy import (
     Boolean,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from app.db.base import Base
 
@@ -53,8 +53,26 @@ class User(Base):
     consent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     
-    # НОВОЕ ПОЛЕ: часовой пояс пользователя
     timezone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="UTC")
+
+    # Связи
+    analyses: Mapped[List["Analysis"]] = relationship(
+        "Analysis",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="Analysis.created_at.desc()",
+    )
+    diary_entries: Mapped[List["DiaryEntry"]] = relationship(
+        "DiaryEntry",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="DiaryEntry.created_at.desc()",
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, telegram_id={self.telegram_id}, username={self.username})>"
+
+
+# Импорт для избежания циклических ссылок
+from app.db.models.analysis import Analysis
+from app.db.models.diary import DiaryEntry

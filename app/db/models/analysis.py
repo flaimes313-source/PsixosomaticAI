@@ -1,7 +1,14 @@
 """
 Модель анализа симптома в базе данных.
 """
-from sqlalchemy import Integer, String, Text, DateTime, ForeignKey, func
+from sqlalchemy import (
+    Integer,
+    String,
+    Text,
+    DateTime,
+    ForeignKey,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
@@ -10,6 +17,7 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.db.models.clarification import Clarification
+    from app.db.models.diary import DiaryEntry
 
 
 class Analysis(Base):
@@ -43,13 +51,24 @@ class Analysis(Base):
         nullable=False,
     )
     
-    # Связь с уточнениями
+    # Связи
     clarifications: Mapped[List["Clarification"]] = relationship(
         "Clarification",
         back_populates="analysis",
         cascade="all, delete-orphan",
         order_by="Clarification.created_at",
     )
+    diary_entries: Mapped[List["DiaryEntry"]] = relationship(
+        "DiaryEntry",
+        back_populates="analysis",
+        cascade="all, delete-orphan",
+        order_by="DiaryEntry.created_at",
+    )
 
     def __repr__(self) -> str:
         return f"<Analysis(id={self.id}, user_id={self.user_id}, symptom={self.symptom[:30]})>"
+
+
+# Импорт для избежания циклических ссылок
+from app.db.models.clarification import Clarification
+from app.db.models.diary import DiaryEntry

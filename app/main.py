@@ -11,7 +11,10 @@ import uvicorn
 from app.config import settings as config_settings
 from app.utils.logging import setup_logging, logger
 from app.bot.middlewares import DBSessionMiddleware
-from app.bot.handlers import start, menu, help, privacy, symptom, cancel, history, stress, settings as settings_handler
+from app.bot.handlers import (
+    start, menu, help, privacy, symptom, cancel, history, stress,
+    settings as settings_handler, diary
+)
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
 from app.db.database import check_db_connection, engine
@@ -60,12 +63,13 @@ async def main() -> None:
     dp.include_router(menu.router)
     dp.include_router(help.router)
     dp.include_router(privacy.router)
-    dp.include_router(symptom.router)   # Сценарий "Разобрать симптом"
-    dp.include_router(stress.router)    # Сценарий "Проверить стресс"
+    dp.include_router(symptom.router)      # Сценарий "Разобрать симптом"
+    dp.include_router(stress.router)       # Сценарий "Проверить стресс"
     dp.include_router(settings_handler.router)  # Сценарий "Настройки"
-    dp.include_router(cancel.router)    # Команда /cancel
-    dp.include_router(history.router)   # История анализов
-    dp.include_router(errors_router)    # Глобальный обработчик ошибок
+    dp.include_router(diary.router)        # Сценарий "Дневник"
+    dp.include_router(cancel.router)       # Команда /cancel
+    dp.include_router(history.router)      # История анализов
+    dp.include_router(errors_router)       # Глобальный обработчик ошибок
     logger.info("Handlers registered")
     
     # Настраиваем команды

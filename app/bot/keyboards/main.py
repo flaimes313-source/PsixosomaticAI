@@ -11,6 +11,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     
     builder.add(
         KeyboardButton(text="🧠 Разобрать симптом"),
+        KeyboardButton(text="📔 Дневник"),  # НОВАЯ КНОПКА
         KeyboardButton(text="🧠 Проверить стресс"),
         KeyboardButton(text="📋 История"),
         KeyboardButton(text="⚙️ Настройки"),
@@ -18,7 +19,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
         KeyboardButton(text="🔐 Конфиденциальность"),
     )
     
-    builder.adjust(2, 2, 2)
+    builder.adjust(2, 2, 2, 1)
     
     return builder.as_markup(
         resize_keyboard=True,
