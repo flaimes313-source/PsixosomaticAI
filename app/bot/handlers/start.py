@@ -17,6 +17,36 @@ from app.utils.logging import logger
 router = Router()
 
 
+# Сопоставление текста кнопки с правильным названием часового пояса
+TZ_MAPPING = {
+    "UTC-12:00 (Камчатка)": "Pacific/Midway",
+    "UTC-11:00 (Магадан)": "Asia/Magadan",
+    "UTC-10:00 (Владивосток)": "Asia/Vladivostok",
+    "UTC-09:00 (Якутск)": "Asia/Yakutsk",
+    "UTC-08:00 (Иркутск)": "Asia/Irkutsk",
+    "UTC-07:00 (Красноярск)": "Asia/Krasnoyarsk",
+    "UTC-06:00 (Новосибирск)": "Asia/Novosibirsk",
+    "UTC-05:00 (Екатеринбург)": "Asia/Yekaterinburg",
+    "UTC-04:00 (Самара)": "Europe/Samara",
+    "UTC-03:00 (Москва)": "Europe/Moscow",
+    "UTC-02:00 (Калининград)": "Europe/Kaliningrad",
+    "UTC-01:00 (Азорские острова)": "Atlantic/Azores",
+    "UTC+00:00 (Лондон)": "Europe/London",
+    "UTC+01:00 (Париж)": "Europe/Paris",
+    "UTC+02:00 (Киев)": "Europe/Kiev",
+    "UTC+03:00 (Москва, лето)": "Europe/Moscow",
+    "UTC+04:00 (Дубай)": "Asia/Dubai",
+    "UTC+05:00 (Екатеринбург, лето)": "Asia/Yekaterinburg",
+    "UTC+06:00 (Омск)": "Asia/Omsk",
+    "UTC+07:00 (Красноярск, лето)": "Asia/Krasnoyarsk",
+    "UTC+08:00 (Иркутск, лето)": "Asia/Irkutsk",
+    "UTC+09:00 (Якутск, лето)": "Asia/Yakutsk",
+    "UTC+10:00 (Владивосток, лето)": "Asia/Vladivostok",
+    "UTC+11:00 (Магадан, лето)": "Asia/Magadan",
+    "UTC+12:00 (Камчатка, лето)": "Pacific/Kamchatka",
+}
+
+
 @router.message(Command("start"))
 async def cmd_start(message: types.Message, db_session: AsyncSession, state: FSMContext):
     """
@@ -82,14 +112,10 @@ async def process_timezone(message: types.Message, state: FSMContext, db_session
     if text == "⏭ Пропустить (UTC)":
         timezone = "UTC"
     else:
-        # Извлекаем время из текста (например, "UTC+03:00 (Москва)" -> "UTC+03:00")
-        import re
-        match = re.search(r'(UTC[+-]\d{2}:\d{2})', text)
-        if match:
-            timezone = match.group(1)
-        else:
-            # Если не удалось распарсить - используем UTC
-            timezone = "UTC"
+        # Получаем правильное название часового пояса из маппинга
+        timezone = TZ_MAPPING.get(text, "UTC")
+        
+        if timezone == "UTC":
             await message.answer(
                 "⚠️ Не удалось определить часовой пояс. Будет использован UTC.",
             )

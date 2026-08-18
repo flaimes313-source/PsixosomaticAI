@@ -9,36 +9,37 @@ def get_timezone_keyboard() -> ReplyKeyboardMarkup:
     """Клавиатура с популярными часовыми поясами."""
     builder = ReplyKeyboardBuilder()
     
+    # Формат: (текст на кнопке, правильное tz название)
     timezones = [
-        "UTC-12:00 (Камчатка)",
-        "UTC-11:00 (Магадан)",
-        "UTC-10:00 (Владивосток)",
-        "UTC-09:00 (Якутск)",
-        "UTC-08:00 (Иркутск)",
-        "UTC-07:00 (Красноярск)",
-        "UTC-06:00 (Новосибирск)",
-        "UTC-05:00 (Екатеринбург)",
-        "UTC-04:00 (Самара)",
-        "UTC-03:00 (Москва)",
-        "UTC-02:00 (Калининград)",
-        "UTC-01:00 (Азорские острова)",
-        "UTC+00:00 (Лондон)",
-        "UTC+01:00 (Париж)",
-        "UTC+02:00 (Киев)",
-        "UTC+03:00 (Москва, лето)",
-        "UTC+04:00 (Дубай)",
-        "UTC+05:00 (Екатеринбург, лето)",
-        "UTC+06:00 (Омск)",
-        "UTC+07:00 (Красноярск, лето)",
-        "UTC+08:00 (Иркутск, лето)",
-        "UTC+09:00 (Якутск, лето)",
-        "UTC+10:00 (Владивосток, лето)",
-        "UTC+11:00 (Магадан, лето)",
-        "UTC+12:00 (Камчатка, лето)",
+        ("UTC-12:00 (Камчатка)", "Pacific/Midway"),
+        ("UTC-11:00 (Магадан)", "Asia/Magadan"),
+        ("UTC-10:00 (Владивосток)", "Asia/Vladivostok"),
+        ("UTC-09:00 (Якутск)", "Asia/Yakutsk"),
+        ("UTC-08:00 (Иркутск)", "Asia/Irkutsk"),
+        ("UTC-07:00 (Красноярск)", "Asia/Krasnoyarsk"),
+        ("UTC-06:00 (Новосибирск)", "Asia/Novosibirsk"),
+        ("UTC-05:00 (Екатеринбург)", "Asia/Yekaterinburg"),
+        ("UTC-04:00 (Самара)", "Europe/Samara"),
+        ("UTC-03:00 (Москва)", "Europe/Moscow"),  # <-- ИСПРАВЛЕНО!
+        ("UTC-02:00 (Калининград)", "Europe/Kaliningrad"),
+        ("UTC-01:00 (Азорские острова)", "Atlantic/Azores"),
+        ("UTC+00:00 (Лондон)", "Europe/London"),
+        ("UTC+01:00 (Париж)", "Europe/Paris"),
+        ("UTC+02:00 (Киев)", "Europe/Kiev"),
+        ("UTC+03:00 (Москва, лето)", "Europe/Moscow"),
+        ("UTC+04:00 (Дубай)", "Asia/Dubai"),
+        ("UTC+05:00 (Екатеринбург, лето)", "Asia/Yekaterinburg"),
+        ("UTC+06:00 (Омск)", "Asia/Omsk"),
+        ("UTC+07:00 (Красноярск, лето)", "Asia/Krasnoyarsk"),
+        ("UTC+08:00 (Иркутск, лето)", "Asia/Irkutsk"),
+        ("UTC+09:00 (Якутск, лето)", "Asia/Yakutsk"),
+        ("UTC+10:00 (Владивосток, лето)", "Asia/Vladivostok"),
+        ("UTC+11:00 (Магадан, лето)", "Asia/Magadan"),
+        ("UTC+12:00 (Камчатка, лето)", "Pacific/Kamchatka"),
     ]
     
-    for tz in timezones:
-        builder.add(KeyboardButton(text=tz))
+    for text, tz_name in timezones:
+        builder.add(KeyboardButton(text=text))
     
     builder.adjust(2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1)
     
