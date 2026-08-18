@@ -891,6 +891,71 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
         )
 
 
+# ==================== РЕДАКТИРОВАНИЕ ЗАПИСИ ====================
+
+@router.callback_query(F.data.startswith("diary_edit_entry_"))
+async def edit_diary_entry(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Редактирование записи."""
+    await callback.answer()
+    
+    entry_id = int(callback.data.split("_")[3])
+    
+    try:
+        # Находим пользователя
+        result = await db_session.execute(
+            select(User).where(User.telegram_id == callback.from_user.id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await callback.message.edit_text(
+                "⚠️ Пожалуйста, отправьте /start",
+                reply_markup=None,
+            )
+            return
+        
+        # Получаем запись
+        diary_repo = DiaryRepository(db_session)
+        entry = await diary_repo.get_entry(entry_id, user.id)
+        
+        if not entry:
+            await callback.message.edit_text(
+                "❌ Запись не найдена.",
+                reply_markup=None,
+            )
+            return
+        
+        # Сохраняем ID записи для редактирования в FSM
+        await state.update_data(edit_entry_id=entry_id)
+        await state.set_state(DiaryStates.waiting_for_symptom)
+        
+        # Заполняем данными из записи
+        await state.update_data(
+            symptom=entry.symptom,
+            symptom_intensity=entry.symptom_intensity,
+            mood=entry.mood,
+            stress=entry.stress,
+            sleep_hours=entry.sleep_hours,
+            context=entry.context,
+            note=entry.note,
+        )
+        
+        await callback.message.edit_text(
+            f"✏️ Редактируем запись #{entry_id}\n\n"
+            "1/7: Опишите симптом\n\n"
+            f"Было: {entry.symptom}\n\n"
+            "Напишите новый симптом или оставьте тот же:",
+            reply_markup=get_cancel_keyboard(),
+        )
+        
+    except Exception as e:
+        logger.error(f"Error editing diary entry: {e}")
+        await callback.message.edit_text(
+            "⚠️ Не удалось загрузить запись для редактирования.",
+            reply_markup=None,
+        )
+
+
 # ==================== УДАЛЕНИЕ ====================
 
 @router.callback_query(F.data.startswith("diary_delete_entry_"))
