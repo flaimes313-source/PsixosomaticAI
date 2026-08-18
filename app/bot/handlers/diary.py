@@ -60,7 +60,7 @@ async def show_diary_menu(message: types.Message, state: FSMContext):
 
 @router.message(F.text == "🔙 Назад")
 async def back_to_main_menu_from_diary(message: types.Message, state: FSMContext):
-    """Возврат в главное меню из дневника."""
+    """Возврат в главное меню из дневника (без FSM)."""
     await state.clear()
     await message.answer(
         "Главное меню:",
@@ -524,7 +524,7 @@ async def cancel_diary_entry(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== ОТМЕНА ====================
+# ==================== ОТМЕНА FSM ====================
 
 @router.message(F.text == "❌ Отмена")
 async def cancel_diary_fsm(message: types.Message, state: FSMContext):
@@ -543,6 +543,31 @@ async def cancel_diary_fsm(message: types.Message, state: FSMContext):
         "❌ Диалог отменён.",
         reply_markup=get_diary_menu_keyboard(),
     )
+
+
+# ==================== ВОЗВРАТ НАЗАД ИЗ РЕДАКТИРОВАНИЯ ====================
+
+@router.message(F.text == "🔙 Назад")
+async def back_from_edit(message: types.Message, state: FSMContext):
+    """Возврат в меню дневника из режима редактирования (FSM)."""
+    current_state = await state.get_state()
+    
+    # Если есть активное FSM состояние
+    if current_state is not None:
+        await state.clear()
+        await message.answer(
+            "📔 Мой дневник\n\n"
+            "Выбери действие:",
+            reply_markup=get_diary_menu_keyboard(),
+        )
+        logger.info(f"User returned from edit mode: telegram_id={message.from_user.id}")
+    else:
+        # Если FSM нет, просто показываем меню
+        await message.answer(
+            "📔 Мой дневник\n\n"
+            "Выбери действие:",
+            reply_markup=get_diary_menu_keyboard(),
+        )
 
 
 # ==================== ПРОСМОТР СЕГОДНЯШНИХ ЗАПИСЕЙ ====================
@@ -911,7 +936,7 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
         )
 
 
-# ==================== РЕДАКТИРОВАНИЕ ЗАПИСИ (ИСПРАВЛЕННОЕ) ====================
+# ==================== РЕДАКТИРОВАНИЕ ЗАПИСИ ====================
 
 @router.callback_query(F.data.startswith("diary_edit_entry_"))
 async def edit_diary_entry(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -960,10 +985,10 @@ async def edit_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
             note=entry.note,
         )
         
-        # ❗ УДАЛЯЕМ сообщение с inline-клавиатурой
+        # Удаляем старое сообщение с inline-клавиатурой
         await callback.message.delete()
         
-        # ❗ ОТПРАВЛЯЕМ новое сообщение с обычной клавиатурой
+        # Отправляем новое сообщение с обычной клавиатурой
         await callback.message.answer(
             f"✏️ Редактируем запись #{entry_id}\n\n"
             "1/7: Опишите симптом\n\n"
