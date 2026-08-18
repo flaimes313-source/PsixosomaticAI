@@ -911,7 +911,7 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
         )
 
 
-# ==================== РЕДАКТИРОВАНИЕ ЗАПИСИ ====================
+# ==================== РЕДАКТИРОВАНИЕ ЗАПИСИ (ИСПРАВЛЕННОЕ) ====================
 
 @router.callback_query(F.data.startswith("diary_edit_entry_"))
 async def edit_diary_entry(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
