@@ -123,6 +123,26 @@ class DiaryRepository:
         )
         return result.scalars().all()
 
+    async def get_entries_by_date_range(
+        self,
+        user_id: int,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[DiaryEntry]:
+        """
+        Получает записи пользователя за диапазон дат (по created_at).
+        """
+        result = await self.session.execute(
+            select(DiaryEntry)
+            .where(
+                DiaryEntry.user_id == user_id,
+                DiaryEntry.created_at >= start_date,
+                DiaryEntry.created_at <= end_date
+            )
+            .order_by(DiaryEntry.created_at)
+        )
+        return result.scalars().all()
+
     async def get_entries_count_by_user(self, user_id: int) -> int:
         """
         Получает общее количество записей пользователя.
