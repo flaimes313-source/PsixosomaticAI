@@ -1,38 +1,5 @@
 """
-Состояния FSM для сценария "Разобрать симптом".
-"""
-from aiogram.fsm.state import State, StatesGroup
-
-
-class RegistrationStates(StatesGroup):
-    """
-    Состояния для регистрации пользователя.
-    """
-    waiting_for_timezone = State()
-
-
-class SymptomAnalysisStates(StatesGroup):
-    """
-    Состояния для анализа симптома.
-    """
-    waiting_for_symptom = State()
-    waiting_for_duration = State()
-    waiting_for_intensity = State()
-    waiting_for_context = State()
-    waiting_for_clarification = State()
-
-
-class StressCheckStates(StatesGroup):
-    """
-    Состояния для сценария "Проверить стресс".
-    """
-    waiting_for_question_1 = State()
-    waiting_for_question_2 = State()
-    waiting_for_question_3 = State()
-    waiting_for_question_4 = State()
-    waiting_for_question_5 = State()
-    """
-Состояния FSM для сценария "Разобрать симптом".
+Состояния FSM для всех сценариев бота.
 """
 from aiogram.fsm.state import State, StatesGroup
 
@@ -78,3 +45,20 @@ class DiaryStates(StatesGroup):
     waiting_for_context = State()      # 6/7: Контекст
     waiting_for_note = State()         # 7/7: Заметка
     confirming = State()               # Предпросмотр
+
+
+class DynamicsStates(StatesGroup):
+    """
+    Состояния для раздела "Моя динамика".
+    """
+    choosing_period = State()          # Выбор периода (7/14/30/90 дней)
+    viewing_report = State()           # Просмотр отчёта
+
+
+class ReminderStates(StatesGroup):
+    """
+    Состояния для раздела "Напоминания".
+    """
+    waiting_for_time = State()         # Ожидание выбора времени
+    waiting_for_custom_time = State()  # Ожидание ввода своего времени
+    waiting_for_days = State()         # Ожидание выбора дней недели

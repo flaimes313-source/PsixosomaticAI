@@ -2,6 +2,7 @@
 Обработчики кнопок главного меню.
 """
 from aiogram import Router, types
+from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.keyboards import get_main_menu_keyboard
@@ -18,9 +19,6 @@ async def handle_history_button(message: types.Message, db_session: AsyncSession
     await show_history(message, db_session)
 
 
-# Убираем заглушку для "⚙️ Настройки" - теперь есть в settings.py
-
-
 @router.message(lambda msg: msg.text == "❓ Помощь")
 async def handle_help_button(message: types.Message, db_session: AsyncSession):
     """Обработчик кнопки 'Помощь'."""
@@ -34,6 +32,12 @@ async def handle_help_button(message: types.Message, db_session: AsyncSession):
         "🧠 Проверить стресс\n"
         "Позволяет пройти небольшой опрос\n"
         "о текущем состоянии.\n\n"
+        "📊 Моя динамика\n"
+        "Анализирует твои записи за период\n"
+        "и показывает возможные закономерности.\n\n"
+        "🔔 Напоминания\n"
+        "Настрой ежедневные напоминания\n"
+        "заполнять дневник.\n\n"
         "📋 История\n"
         "Сохраняет все предыдущие разборы симптомов.\n\n"
         "⚙️ Настройки\n"
@@ -76,3 +80,27 @@ async def handle_back(message: types.Message, db_session: AsyncSession):
         "Возвращаемся в главное меню",
         reply_markup=get_main_menu_keyboard(),
     )
+
+
+# ==================== НОВЫЕ ОБРАБОТЧИКИ ====================
+
+@router.message(lambda msg: msg.text == "📊 Моя динамика")
+async def handle_dynamics_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """
+    Обработчик кнопки 'Моя динамика'.
+    """
+    logger.info(f"User requested dynamics via button: telegram_id={message.from_user.id}")
+    
+    from app.bot.handlers.dynamics import show_dynamics_menu
+    await show_dynamics_menu(message, state)
+
+
+@router.message(lambda msg: msg.text == "🔔 Напоминания")
+async def handle_reminders_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """
+    Обработчик кнопки 'Напоминания'.
+    """
+    logger.info(f"User requested reminders via button: telegram_id={message.from_user.id}")
+    
+    from app.bot.handlers.reminders import show_reminders_menu
+    await show_reminders_menu(message, state, db_session)

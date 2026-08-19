@@ -40,3 +40,13 @@ from .diary import (
     get_confirm_delete_keyboard as get_diary_confirm_delete_keyboard,
     get_date_navigation_keyboard,
 )
+from .dynamics import (  # ← Добавлено
+    get_dynamics_period_keyboard,
+    get_dynamics_actions_keyboard,
+)
+from .reminders import (  # ← Добавлено
+    get_reminders_menu_keyboard,
+    get_time_preset_keyboard,
+    get_days_keyboard,
+    get_cancel_keyboard as get_reminder_cancel_keyboard,
+)

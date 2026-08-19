@@ -3,7 +3,7 @@ AI сервис для работы с YandexGPT.
 """
 import json
 import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -12,6 +12,7 @@ from app.db.repositories.analysis import AnalysisRepository
 from app.db.repositories.clarification import ClarificationRepository
 from app.db.models.user import User
 from app.schemas.analysis import AnalysisResult
+from app.schemas.dynamics import DynamicsStatistics, DynamicsReport
 from app.utils.logging import logger
 
 
@@ -20,6 +21,8 @@ class AIService:
 
     def __init__(self):
         self.client = YandexGPTClient()
+
+    # ==================== ОСНОВНОЙ СИСТЕМНЫЙ ПРОМПТ ====================
 
     def _build_system_prompt(self) -> str:
         """Формирует системный промпт для YandexGPT."""
@@ -175,6 +178,70 @@ class AIService:
 5. check_question - вопрос для самопроверки или null
 """
 
+    # ==================== СИСТЕМНЫЙ ПРОМПТ ДЛЯ ДИНАМИКИ ====================
+
+    def _build_dynamics_system_prompt(self) -> str:
+        """Формирует системный промпт для анализа динамики."""
+        return """
+Ты — AI-помощник проекта «Психосоматика: Помощник в кармане».
+
+Ты анализируешь дневниковые наблюдения пользователя и формируешь отчёт о динамике симптомов.
+
+ТЫ НЕ ВРАЧ, НЕ ПСИХОТЕРАПЕВТ, НЕ СТАВИШЬ ДИАГНОЗЫ.
+
+ГЛАВНЫЕ ПРИНЦИПЫ:
+1. Анализируй только предоставленные данные. Не придумывай отсутствующие данные.
+2. НЕ УТВЕРЖДАЙ ПРИЧИННО-СЛЕДСТВЕННУЮ СВЯЗЬ.
+3. Различай корреляцию и причинность.
+4. Если данных мало (3-6 записей) — укажи, что выводы предварительные.
+5. При наличии медицинских красных флагов — не давай психосоматическое объяснение.
+
+ИСПОЛЬЗУЙ ФОРМУЛИРОВКИ:
+- "может наблюдаться связь"
+- "в данных заметна закономерность"
+- "стоит понаблюдать"
+- "возможно, стоит обратить внимание на"
+- "это наблюдение по дневниковым данным, а не доказательство"
+
+НЕ ИСПОЛЬЗУЙ:
+- "стресс вызывает"
+- "у пользователя заболевание"
+- "симптом точно психосоматический"
+- "ваше тело кричит о проблеме"
+
+СТИЛЬ:
+- дружелюбный
+- поддерживающий
+- понятный
+- без излишней терминологии
+- без обвинений
+
+**ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!**
+
+Структура ответа:
+{
+    "summary": "Общая картина за период (2-4 предложения)",
+    "main_patterns": ["закономерность 1", "закономерность 2", ...],
+    "possible_connections": ["возможная связь 1", "возможная связь 2", ...],
+    "positive_changes": ["положительное изменение 1", "положительное изменение 2", ...],
+    "areas_to_watch": ["на что обратить внимание 1", "на что обратить внимание 2", ...],
+    "next_steps": ["что можно попробовать 1", "что можно попробовать 2", ...],
+    "medical_note": "медицинское предостережение или пустая строка"
+}
+
+Правила:
+- main_patterns: 2-4 пункта
+- possible_connections: 1-3 пункта
+- positive_changes: 1-3 пункта
+- areas_to_watch: 2-4 пункта
+- next_steps: 2-4 пункта
+- medical_note: если есть тревожные симптомы, иначе пустая строка
+
+Если данных недостаточно (<3 записей) — верни пустой JSON.
+"""
+
+    # ==================== ОСНОВНЫЕ МЕТОДЫ ====================
+
     def _build_user_prompt(
         self,
         symptom: str,
@@ -204,9 +271,7 @@ class AIService:
         previous_analysis: str,
         question: str,
     ) -> str:
-        """
-        Формирует промпт для уточняющего вопроса.
-        """
+        """Формирует промпт для уточняющего вопроса."""
         return f"""
 Ранее пользователь обратился с таким симптомом:
 
@@ -225,6 +290,8 @@ class AIService:
 Будь бережным, поддерживающим, не ставь диагнозов.
 Говори на русском языке, просто и понятно.
 """
+
+    # ==================== МЕТОДЫ ПАРСИНГА ====================
 
     def _parse_response(self, response: str) -> AnalysisResult:
         """Парсит ответ YandexGPT в структурированный объект."""
@@ -271,6 +338,48 @@ class AIService:
                 things_to_observe=[],
                 medical_warning="Если симптомы беспокоят, обратитесь к врачу."
             )
+
+    def _parse_dynamics_response(self, response: str) -> Optional[Dict[str, Any]]:
+        """Парсит JSON-ответ от YandexGPT для динамики."""
+        try:
+            # Ищем JSON в ответе
+            brace_count = 0
+            start = -1
+            for i, char in enumerate(response):
+                if char == '{':
+                    if brace_count == 0:
+                        start = i
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0 and start != -1:
+                        json_str = response[start:i+1]
+                        break
+            else:
+                # Если не нашли, пробуем весь ответ
+                data = json.loads(response)
+                return data
+            
+            data = json.loads(json_str)
+
+            # Проверяем обязательные поля
+            required_fields = ["summary", "main_patterns", "possible_connections", 
+                             "positive_changes", "areas_to_watch", "next_steps"]
+            for field in required_fields:
+                if field not in data:
+                    data[field] = [] if field != "summary" else "Анализ динамики не сформирован."
+
+            return data
+
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error in dynamics: {e}")
+            logger.error(f"Response: {response[:500]}")
+            return None
+        except Exception as e:
+            logger.error(f"Error parsing dynamics response: {e}")
+            return None
+
+    # ==================== МЕТОД АНАЛИЗА СИМПТОМА ====================
 
     async def analyze_symptom(
         self,
@@ -325,6 +434,8 @@ class AIService:
                 "error": "Произошла непредвиденная ошибка при анализе.",
             }
 
+    # ==================== МЕТОД УТОЧНЯЮЩИХ ВОПРОСОВ ====================
+
     async def clarify_symptom(
         self,
         symptom: str,
@@ -337,9 +448,7 @@ class AIService:
         telegram_id: Optional[int] = None,
         db_session: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
-        """
-        Отвечает на уточняющий вопрос пользователя и сохраняет в БД.
-        """
+        """Отвечает на уточняющий вопрос пользователя и сохраняет в БД."""
         logger.info(f"Clarification started: question={question[:30]}...")
 
         try:
@@ -370,7 +479,6 @@ class AIService:
             # Сохраняем в БД
             if db_session and analysis_id and telegram_id:
                 try:
-                    # Находим пользователя по telegram_id
                     user_result = await db_session.execute(
                         select(User).where(User.telegram_id == telegram_id)
                     )
@@ -386,7 +494,7 @@ class AIService:
                     
                     clarification = await repo.create(
                         analysis_id=analysis_id,
-                        user_id=user.id,  # id из БД
+                        user_id=user.id,
                         question=question,
                         answer=response,
                     )
@@ -420,6 +528,167 @@ class AIService:
                 "raw_response": None,
                 "error": "Произошла ошибка при ответе на вопрос.",
             }
+
+    # ==================== НОВЫЙ МЕТОД: АНАЛИЗ ДИНАМИКИ ====================
+
+    async def analyze_dynamics(
+        self,
+        stats: DynamicsStatistics,
+    ) -> Optional[DynamicsReport]:
+        """
+        Анализ динамики на основе статистики.
+        Возвращает DynamicsReport или None при ошибке.
+        """
+        if stats.entries_count < 3:
+            logger.info("Not enough entries for dynamics analysis (need at least 3)")
+            return None
+
+        try:
+            # Формируем данные для отправки
+            data_for_ai = self._prepare_dynamics_data(stats)
+            
+            # Получаем системный промпт
+            system_prompt = self._build_dynamics_system_prompt()
+            
+            # Отправляем запрос к YandexGPT
+            response = await self.client.generate(
+                system_prompt=system_prompt,
+                user_prompt=json.dumps(data_for_ai, ensure_ascii=False, indent=2),
+                temperature=0.3,
+            )
+
+            # Парсим JSON
+            report_data = self._parse_dynamics_response(response)
+            if not report_data:
+                logger.warning("Failed to parse dynamics response, using fallback")
+                return self._create_fallback_report(stats)
+
+            # Валидируем через Pydantic
+            report = DynamicsReport(**report_data)
+            
+            # Добавляем медицинское предостережение по умолчанию, если его нет
+            if not report.medical_note:
+                report.medical_note = (
+                    "ℹ️ Это наблюдение по дневниковым данным, "
+                    "а не доказательство причинно-следственной связи."
+                )
+
+            logger.info(f"Dynamics analysis completed for {stats.entries_count} entries")
+            return report
+
+        except YandexGPTError as e:
+            logger.error(f"YandexGPT error in analyze_dynamics: {e}")
+            return self._create_fallback_report(stats)
+        except Exception as e:
+            logger.error(f"Error in analyze_dynamics: {e}")
+            return self._create_fallback_report(stats)
+
+    def _prepare_dynamics_data(self, stats: DynamicsStatistics) -> Dict[str, Any]:
+        """Подготовить данные для отправки в AI."""
+        data = {
+            "period": f"{stats.period_days} дней",
+            "period_days": stats.period_days,
+            "entries_count": stats.entries_count,
+            "start_date": stats.start_date.strftime("%d.%m.%Y"),
+            "end_date": stats.end_date.strftime("%d.%m.%Y"),
+            
+            # Основные показатели
+            "average_intensity": stats.average_intensity,
+            "min_intensity": stats.min_intensity,
+            "max_intensity": stats.max_intensity,
+            
+            "average_stress": stats.average_stress,
+            "min_stress": stats.min_stress,
+            "max_stress": stats.max_stress,
+            
+            "average_mood": stats.average_mood,
+            "min_mood": stats.min_mood,
+            "max_mood": stats.max_mood,
+            
+            "average_sleep": stats.average_sleep,
+            "min_sleep": stats.min_sleep,
+            "max_sleep": stats.max_sleep,
+            
+            # Топ симптомов
+            "top_symptoms": [
+                {
+                    "symptom": s.symptom,
+                    "count": s.count,
+                    "average_intensity": s.average_intensity,
+                    "min_intensity": s.min_intensity,
+                    "max_intensity": s.max_intensity,
+                }
+                for s in stats.top_symptoms
+            ],
+        }
+
+        # Сравнение первой и последней части
+        if stats.first_period and stats.last_period:
+            data["first_period"] = {
+                "start": stats.first_period.start_date.strftime("%d.%m.%Y"),
+                "end": stats.first_period.end_date.strftime("%d.%m.%Y"),
+                "entries_count": stats.first_period.entries_count,
+                "average_intensity": stats.first_period.average_intensity,
+                "average_stress": stats.first_period.average_stress,
+                "average_mood": stats.first_period.average_mood,
+                "average_sleep": stats.first_period.average_sleep,
+            }
+            data["last_period"] = {
+                "start": stats.last_period.start_date.strftime("%d.%m.%Y"),
+                "end": stats.last_period.end_date.strftime("%d.%m.%Y"),
+                "entries_count": stats.last_period.entries_count,
+                "average_intensity": stats.last_period.average_intensity,
+                "average_stress": stats.last_period.average_stress,
+                "average_mood": stats.last_period.average_mood,
+                "average_sleep": stats.last_period.average_sleep,
+            }
+
+        # Сравнения (корреляции)
+        if stats.stress_symptom_comparison:
+            data["stress_comparison"] = stats.stress_symptom_comparison
+        if stats.sleep_symptom_comparison:
+            data["sleep_comparison"] = stats.sleep_symptom_comparison
+        if stats.mood_symptom_comparison:
+            data["mood_comparison"] = stats.mood_symptom_comparison
+
+        # Контексты
+        if stats.relevant_contexts:
+            data["recent_contexts"] = stats.relevant_contexts[:3]
+        if stats.frequent_contexts:
+            data["frequent_contexts"] = stats.frequent_contexts[:3]
+
+        # Предыдущие анализы
+        if stats.previous_analyses_summary:
+            data["previous_analyses"] = stats.previous_analyses_summary
+
+        return data
+
+    def _create_fallback_report(self, stats: DynamicsStatistics) -> DynamicsReport:
+        """Создаёт отчёт-заглушку при ошибке AI."""
+        return DynamicsReport(
+            summary=(
+                f"За {stats.period_days} дней сделано {stats.entries_count} записей. "
+                f"Средняя интенсивность симптомов: {stats.average_intensity}/10. "
+                f"Средний стресс: {stats.average_stress}/10."
+            ),
+            main_patterns=[
+                f"Интенсивность симптомов варьируется от {stats.min_intensity} до {stats.max_intensity}/10",
+                f"Стресс в среднем составляет {stats.average_stress}/10",
+            ],
+            possible_connections=[],
+            positive_changes=[],
+            areas_to_watch=[
+                "Продолжай отслеживать интенсивность симптомов",
+                "Обрати внимание на связь между стрессом и самочувствием",
+            ],
+            next_steps=[
+                "Продолжай вести дневник — это поможет увидеть динамику",
+                "Попробуй отслеживать, что влияет на твоё состояние",
+            ],
+            medical_note="ℹ️ Это наблюдение по дневниковым данным, а не медицинская диагностика.",
+        )
+
+    # ==================== МЕТОД АНАЛИЗА С СОХРАНЕНИЕМ ====================
 
     async def analyze_and_save(
         self,
@@ -498,6 +767,8 @@ class AIService:
 
         return result
 
+
+# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
 def format_analysis_for_db(analysis: AnalysisResult) -> str:
     """Форматирует AnalysisResult для сохранения в БД."""
