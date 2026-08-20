@@ -6,7 +6,9 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.sql import func
 from datetime import time, datetime
 from typing import Optional, List, Dict, Any
+
 from app.db.models.reminder import ReminderSettings
+from app.db.models.user import User
 from app.utils.logging import logger
 
 
@@ -24,18 +26,25 @@ class ReminderRepository:
         settings = result.scalar_one_or_none()
         
         if not settings:
+            # 🔥 БЕРЁМ ЧАСОВОЙ ПОЯС ИЗ ТАБЛИЦЫ USERS
+            user_result = await self.session.execute(
+                select(User).where(User.telegram_id == user_id)
+            )
+            user = user_result.scalar_one_or_none()
+            user_timezone = user.timezone if user and user.timezone else "UTC"
+            
             settings = ReminderSettings(
                 user_id=user_id,
                 enabled=False,
                 reminder_time=None,
-                timezone="UTC",
+                timezone=user_timezone,  # ← АВТОМАТИЧЕСКИ СТАВИМ ТОТ ЖЕ, ЧТО У ПОЛЬЗОВАТЕЛЯ
                 days_of_week=None,
                 last_reminder_sent_at=None
             )
             self.session.add(settings)
             await self.session.commit()
             await self.session.refresh(settings)
-            logger.info(f"Created reminder settings for user {user_id}")
+            logger.info(f"Created reminder settings for user {user_id} with timezone {user_timezone}")
         
         return settings
 
@@ -109,6 +118,15 @@ class ReminderRepository:
         if not settings or not settings.last_reminder_sent_at:
             return False
         
-        today = datetime.now().date()
-        last_sent_date = settings.last_reminder_sent_at.date()
-        return last_sent_date == today
+        # Используем timezone пользователя для определения "сегодня"
+        try:
+            from zoneinfo import ZoneInfo
+            user_tz = ZoneInfo(settings.timezone if settings.timezone else "UTC")
+            today = datetime.now(user_tz).date()
+            last_sent_date = settings.last_reminder_sent_at.astimezone(user_tz).date()
+            return last_sent_date == today
+        except Exception:
+            # Fallback: сравниваем по UTC
+            today = datetime.now().date()
+            last_sent_date = settings.last_reminder_sent_at.date()
+            return last_sent_date == today
