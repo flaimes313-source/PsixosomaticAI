@@ -57,33 +57,24 @@ class ReminderService:
         while self.running:
             try:
                 await self._check_reminders()
-                await asyncio.sleep(10)  # ← ИЗМЕНЕНО: проверяем каждые 10 секунд
+                await asyncio.sleep(10)  # Проверяем каждые 10 секунд
             except Exception as e:
                 logger.error(f"Error in reminder scheduler loop: {e}")
                 await asyncio.sleep(30)
 
     async def _check_reminders(self):
         """Проверяет, нужно ли отправить напоминания."""
-        logger.info("🔍 Checking reminders...")  # ← ДОБАВЛЕНО
+        logger.info("🔍 Checking reminders...")
         
         async with self.session_factory() as session:
             reminder_repo = ReminderRepository(session)
             
             # Получаем все активные напоминания
             settings_list = await reminder_repo.get_active_reminders()
-            logger.info(f"📋 Active reminders found: {len(settings_list)}")  # ← ДОБАВЛЕНО
+            logger.info(f"📋 Active reminders found: {len(settings_list)}")
             
             if not settings_list:
                 return
-
-            now_utc = datetime.now(ZoneInfo("UTC"))
-            current_minute = now_utc.minute
-            
-            # УБРАНО ОГРАНИЧЕНИЕ НА 0, 1, 2 МИНУТУ
-            # Проверяем каждую секунду, но отправляем только если совпадает время
-
-            # Получаем текущий день недели (0 = понедельник, 6 = воскресенье)
-            current_weekday = now_utc.weekday()
 
             for settings in settings_list:
                 if not settings.enabled or not settings.reminder_time:
@@ -101,14 +92,18 @@ class ReminderService:
                 except Exception:
                     user_tz = ZoneInfo("UTC")
                 
+                # ====================================================
+                # 🔥 ГЛАВНОЕ ИСПРАВЛЕНИЕ: используем время пользователя
+                # ====================================================
                 user_now = datetime.now(user_tz)
                 user_time = user_now.time()
+                user_weekday = user_now.weekday()  # ← теперь день недели по времени пользователя
                 
                 # Проверяем время (сравниваем часы и минуты)
                 reminder_hour = settings.reminder_time.hour
                 reminder_minute = settings.reminder_time.minute
                 
-                logger.info(f"⏰ User {settings.user_id}: now={user_time.hour}:{user_time.minute}, reminder={reminder_hour}:{reminder_minute}")
+                logger.info(f"⏰ User {settings.user_id}: now={user_time.hour}:{user_time.minute}, reminder={reminder_hour}:{reminder_minute}, weekday={user_weekday}")
                 
                 # Если время совпадает (с точностью до минуты)
                 if (user_time.hour == reminder_hour and 
@@ -116,10 +111,10 @@ class ReminderService:
                     
                     logger.info(f"✅ Time match for user {settings.user_id}!")
                     
-                    # Проверяем дни недели
+                    # Проверяем дни недели (по времени пользователя)
                     if settings.days_of_week is not None and len(settings.days_of_week) > 0:
-                        if current_weekday not in settings.days_of_week:
-                            logger.info(f"⏭️ Wrong day for user {settings.user_id}")
+                        if user_weekday not in settings.days_of_week:
+                            logger.info(f"⏭️ Wrong day for user {settings.user_id}: {user_weekday} not in {settings.days_of_week}")
                             continue
 
                     # Отправляем напоминание
