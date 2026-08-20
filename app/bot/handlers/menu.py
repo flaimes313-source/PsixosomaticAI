@@ -92,7 +92,7 @@ async def handle_dynamics_button(message: types.Message, state: FSMContext, db_s
     logger.info(f"User requested dynamics via button: telegram_id={message.from_user.id}")
     
     from app.bot.handlers.dynamics import show_dynamics_menu
-    await show_dynamics_menu(message, state)
+    await show_dynamics_menu(message, state, db_session)  # ← ИСПРАВЛЕНО
 
 
 @router.message(lambda msg: msg.text == "🔔 Напоминания")
@@ -103,4 +103,15 @@ async def handle_reminders_button(message: types.Message, state: FSMContext, db_
     logger.info(f"User requested reminders via button: telegram_id={message.from_user.id}")
     
     from app.bot.handlers.reminders import show_reminders_menu
-    await show_reminders_menu(message, state, db_session)
+    await show_reminders_menu(message, state, db_session)  # ← ИСПРАВЛЕНО
+
+
+@router.message(lambda msg: msg.text == "⭐ PRO")
+async def handle_pro_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """
+    Обработчик кнопки 'PRO'.
+    """
+    logger.info(f"User requested PRO via button: telegram_id={message.from_user.id}")
+    
+    from app.bot.handlers.pro import show_pro_menu
+    await show_pro_menu(message, state, db_session)  # ← ДОБАВЛЕНО
