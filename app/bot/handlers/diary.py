@@ -24,9 +24,12 @@ from app.bot.keyboards.diary import (
     get_confirm_delete_keyboard,
     get_date_navigation_keyboard,
 )
+from app.bot.keyboards.pro import get_pro_locked_keyboard  # ← НОВЫЙ ИМПОРТ
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.repositories.diary import DiaryRepository
 from app.db.models.user import User
+from app.services.access_service import AccessService  # ← НОВЫЙ ИМПОРТ
+from app.services.usage_service import UsageService     # ← НОВЫЙ ИМПОРТ
 from app.utils.logging import logger
 
 router = Router()
@@ -71,9 +74,34 @@ async def back_to_main_menu_from_diary(message: types.Message, state: FSMContext
 # ==================== НОВАЯ ЗАПИСЬ ====================
 
 @router.message(F.text == "➕ Новая запись")
-async def start_new_diary_entry(message: types.Message, state: FSMContext):
+async def start_new_diary_entry(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """Начинает создание новой дневниковой записи."""
     await state.clear()
+    
+    user_id = message.from_user.id
+    
+    # Проверяем лимит записей
+    access_service = AccessService(db_session)
+    can_create = await access_service.can_create_diary_entry(user_id)
+    
+    if not can_create:
+        # Проверяем, PRO ли пользователь
+        is_pro = await access_service.is_pro(user_id)
+        if is_pro:
+            # Если PRO, то ошибка в другом месте (не должно происходить)
+            logger.warning(f"PRO user {user_id} hit diary limit?")
+        else:
+            await message.answer(
+                "📔 <b>Лимит записей в дневнике исчерпан</b>\n\n"
+                "В бесплатной версии можно создать до 30 записей.\n"
+                "Ты уже использовал все 30 записей.\n\n"
+                "⭐ Переходи на PRO, чтобы вести дневник без ограничений!\n\n"
+                "Нажми кнопку ниже, чтобы узнать больше:",
+                reply_markup=get_pro_locked_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+    
     await state.set_state(DiaryStates.waiting_for_symptom)
     
     await message.answer(

@@ -6,6 +6,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.bot.states import SymptomAnalysisStates
 from app.bot.keyboards import (
@@ -16,8 +17,11 @@ from app.bot.keyboards import (
     get_clarification_keyboard,
     get_question_keyboard,
 )
-from app.services.ai_service import ai_service
+from app.bot.keyboards.pro import get_pro_locked_keyboard  # ← НОВЫЙ ИМПОРТ
+from app.services.ai_service import ai_service, AIService
 from app.services.safety import safety_service, SafetyLevel
+from app.services.access_service import AccessService  # ← НОВЫЙ ИМПОРТ
+from app.services.usage_service import UsageService     # ← НОВЫЙ ИМПОРТ
 from app.utils.logging import logger
 from app.utils.formatter import format_analysis_for_telegram
 
@@ -257,6 +261,19 @@ async def process_context(message: types.Message, state: FSMContext, db_session:
         logger.info(f"Safety critical: {safety_result.reason}, user={telegram_id}")
         return
     
+    # ==================== НОВАЯ ПРОВЕРКА ЛИМИТА AI-АНАЛИЗОВ ====================
+    access_service = AccessService(db_session)
+    can_use, limit_message = await access_service.check_and_increment_analysis(telegram_id)
+    
+    if not can_use:
+        await message.answer(
+            limit_message,
+            reply_markup=get_pro_locked_keyboard(),
+            parse_mode="HTML",
+        )
+        return
+    # ========================================================================
+    
     # Если WARNING — сохраняем предупреждение для финального ответа
     safety_warning = None
     if safety_result.level == SafetyLevel.WARNING:
@@ -284,6 +301,11 @@ async def process_context(message: types.Message, state: FSMContext, db_session:
         
         if result["success"]:
             analysis = result["analysis"]
+            
+            # ==================== УВЕЛИЧИВАЕМ СЧЁТЧИК ИСПОЛЬЗОВАНИЯ ====================
+            usage_service = UsageService(db_session)
+            await usage_service.increment_analysis(telegram_id)
+            # ========================================================================
             
             # ==================== SAFETY ПРОВЕРКА ПОСЛЕ AI ====================
             safety_output = safety_service.check_output(analysis.summary)
@@ -586,3 +608,28 @@ async def new_analysis(callback: CallbackQuery, state: FSMContext):
     
     fake_message = FakeMessage(callback.from_user.id)
     await start_symptom_analysis(fake_message, state)
+
+
+# ==================== КОНЕЧНЫЕ КНОПКИ ====================
+
+@router.callback_query(F.data == "history_back")
+async def go_to_history(callback: CallbackQuery, state: FSMContext):
+    """Переход к истории."""
+    await callback.answer()
+    await state.clear()
+    
+    from app.bot.handlers.history import show_history
+    await show_history(callback.message, db_session=None)
+
+
+@router.callback_query(F.data == "back_to_menu")
+async def back_to_menu(callback: CallbackQuery, state: FSMContext):
+    """Возврат в главное меню."""
+    await callback.answer()
+    await state.clear()
+    
+    await callback.message.delete()
+    await callback.message.answer(
+        "Главное меню:",
+        reply_markup=get_main_menu_keyboard(),
+    )

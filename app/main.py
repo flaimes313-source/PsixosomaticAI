@@ -14,12 +14,14 @@ from app.bot.middlewares import DBSessionMiddleware
 from app.bot.handlers import (
     start, menu, help, privacy, symptom, cancel, history, stress,
     settings as settings_handler, diary,
-    dynamics_handler, reminders_handler
+    dynamics_handler, reminders_handler, pro_handler  # ← ДОБАВЛЕН pro_handler
 )
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
 from app.db.database import check_db_connection, engine, async_session_maker
-from app.services.reminder_service import ReminderService  # ← НОВЫЙ ИМПОРТ
+from app.services.reminder_service import ReminderService
+from app.services.subscription_service import SubscriptionService
+from app.db.repositories.subscription import SubscriptionRepository
 
 
 # Настройка логирования
@@ -37,6 +39,18 @@ async def setup_bot_commands(bot: Bot) -> None:
     ]
     await bot.set_my_commands(commands)
     logger.info("Bot commands configured")
+
+
+async def check_expired_subscriptions() -> None:
+    """Проверяет истекшие подписки при запуске."""
+    try:
+        async with async_session_maker() as session:
+            subscription_service = SubscriptionService(session)
+            expired_count = await subscription_service.check_expired_subscriptions()
+            if expired_count > 0:
+                logger.info(f"Checked and expired {expired_count} subscriptions")
+    except Exception as e:
+        logger.error(f"Failed to check expired subscriptions on startup: {e}")
 
 
 async def main() -> None:
@@ -65,26 +79,29 @@ async def main() -> None:
     dp.include_router(menu.router)
     dp.include_router(help.router)
     dp.include_router(privacy.router)
-    dp.include_router(symptom.router)
-    dp.include_router(stress.router)
-    dp.include_router(settings_handler.router)
-    dp.include_router(diary.router)
-    dp.include_router(dynamics_handler.router)
-    dp.include_router(reminders_handler.router)
-    dp.include_router(cancel.router)
-    dp.include_router(history.router)
-    dp.include_router(errors_router)
+    dp.include_router(symptom.router)          # Сценарий "Разобрать симптом"
+    dp.include_router(stress.router)           # Сценарий "Проверить стресс"
+    dp.include_router(settings_handler.router) # Сценарий "Настройки"
+    dp.include_router(diary.router)            # Сценарий "Дневник"
+    dp.include_router(dynamics_handler.router) # Сценарий "Моя динамика"
+    dp.include_router(reminders_handler.router)# Сценарий "Напоминания"
+    dp.include_router(pro_handler.router)      # ← НОВЫЙ: Сценарий "PRO"
+    dp.include_router(cancel.router)           # Команда /cancel
+    dp.include_router(history.router)          # История анализов
+    dp.include_router(errors_router)           # Глобальный обработчик ошибок
     logger.info("Handlers registered")
     
     # Настраиваем команды
     await setup_bot_commands(bot)
     
-    # ==================== НОВОЕ: ЗАПУСК ШЕДУЛЕРА НАПОМИНАНИЙ ====================
+    # Проверяем истекшие подписки при запуске
+    await check_expired_subscriptions()
+    
+    # Запускаем шедулер напоминаний
     logger.info("Starting ReminderService...")
     reminder_service = ReminderService(async_session_maker, bot)
     await reminder_service.start()
     logger.info("ReminderService started")
-    # ========================================================================
     
     # Запускаем FastAPI сервер в фоне
     logger.info(f"Starting FastAPI server on {config_settings.API_HOST}:{config_settings.API_PORT}")
@@ -105,7 +122,7 @@ async def main() -> None:
         # Graceful shutdown
         logger.info("Shutting down...")
         fastapi_task.cancel()
-        await reminder_service.stop()  # ← ОСТАНАВЛИВАЕМ ШЕДУЛЕР
+        await reminder_service.stop()
         await bot.session.close()
         await engine.dispose()
         logger.info("Application stopped")

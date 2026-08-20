@@ -11,11 +11,14 @@ from app.bot.states import DynamicsStates
 from app.bot.keyboards.dynamics import (
     get_dynamics_period_keyboard,
     get_dynamics_actions_keyboard,
+    get_dynamics_locked_keyboard,
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.schemas.dynamics import PeriodType
 from app.services.dynamics_service import DynamicsService
 from app.services.ai_service import AIService
+from app.services.access_service import AccessService
+from app.services.usage_service import UsageService
 from app.db.models.user import User
 from app.utils.logging import logger
 
@@ -23,15 +26,22 @@ router = Router()
 
 
 @router.message(F.text == "📊 Моя динамика")
-async def show_dynamics_menu(message: types.Message, state: FSMContext):
+async def show_dynamics_menu(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """Показывает меню выбора периода для динамики."""
     await state.clear()
+    
+    user_id = message.from_user.id
+    
+    # Проверяем, PRO ли пользователь
+    access_service = AccessService(db_session)
+    is_pro = await access_service.is_pro(user_id)
     
     await message.answer(
         "📊 Моя динамика\n\n"
         "За какой период хочешь посмотреть динамику?\n\n"
-        "🔍 Минимум для анализа — 3 записи в дневнике.",
-        reply_markup=get_dynamics_period_keyboard(),
+        "🔍 Минимум для анализа — 3 записи в дневнике.\n\n"
+        "⭐ 30 и 90 дней доступны в PRO",
+        reply_markup=get_dynamics_period_keyboard(is_pro),
     )
     logger.info(f"User opened dynamics menu: {message.from_user.id}")
 
@@ -41,12 +51,41 @@ async def process_dynamics_period(callback: CallbackQuery, state: FSMContext, db
     """Обрабатывает выбор периода и запускает анализ."""
     await callback.answer("Анализирую...")
     
+    # Проверяем, не заблокирован ли период
+    if callback.data.endswith("_locked"):
+        await callback.message.edit_text(
+            "⭐ Эта функция доступна в PRO.\n\n"
+            "📊 30 и 90 дней динамики, расширенные отчёты и неограниченный дневник ждут тебя!",
+            reply_markup=get_dynamics_locked_keyboard(),
+        )
+        return
+    
     period_type_str = callback.data.replace("dynamics_period_", "")
     period_type = PeriodType(period_type_str)
     
     telegram_id = callback.from_user.id
     
     try:
+        # Проверяем PRO для 30 и 90 дней
+        access_service = AccessService(db_session)
+        period_days = {
+            "7_days": 7,
+            "14_days": 14,
+            "30_days": 30,
+            "90_days": 90,
+        }.get(period_type_str, 7)
+        
+        if period_days > 7:
+            can_use = await access_service.can_run_dynamics(telegram_id, period_days)
+            if not can_use:
+                await callback.message.edit_text(
+                    "⭐ Эта функция доступна в PRO.\n\n"
+                    "📊 30 и 90 дней динамики, расширенные отчёты и неограниченный дневник ждут тебя!",
+                    reply_markup=get_dynamics_locked_keyboard(),
+                )
+                return
+        
+        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -59,8 +98,19 @@ async def process_dynamics_period(callback: CallbackQuery, state: FSMContext, db
             )
             return
         
+        # Проверяем лимит использования динамики
+        usage_service = UsageService(db_session)
+        can_use, message_text = await access_service.check_and_increment_dynamics(telegram_id)
+        if not can_use:
+            await callback.message.edit_text(
+                message_text,
+                reply_markup=get_dynamics_locked_keyboard(),
+            )
+            return
+        
         await state.update_data(period_type=period_type)
         
+        # Расчитываем статистику
         dynamics_service = DynamicsService(db_session)
         stats = await dynamics_service.calculate_statistics(user.id, period_type)
         
@@ -75,16 +125,22 @@ async def process_dynamics_period(callback: CallbackQuery, state: FSMContext, db
         
         await state.update_data(stats=stats)
         
+        # Формируем базовую статистику
         base_report = _format_basic_stats(stats)
         
+        # Показываем, что идёт анализ AI
         await callback.message.edit_text(
             f"{base_report}\n\n"
             "🤔 Анализирую динамику с помощью AI...",
             reply_markup=None,
         )
         
+        # Запускаем AI-анализ
         ai_service = AIService()
         report = await ai_service.analyze_dynamics(stats)
+        
+        # Увеличиваем счётчик использования
+        await usage_service.increment_dynamics(telegram_id)
         
         if report:
             full_report = _format_dynamics_report(stats, report)
@@ -189,16 +245,21 @@ def _format_dynamics_report(stats, report) -> str:
 
 
 @router.callback_query(F.data == "dynamics_back_to_menu")
-async def back_to_dynamics_menu(callback: CallbackQuery, state: FSMContext):
+async def back_to_dynamics_menu(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Возврат в меню динамики."""
     await callback.answer()
     await state.clear()
     
+    user_id = callback.from_user.id
+    access_service = AccessService(db_session)
+    is_pro = await access_service.is_pro(user_id)
+    
     await callback.message.edit_text(
         "📊 Моя динамика\n\n"
         "За какой период хочешь посмотреть динамику?\n\n"
-        "🔍 Минимум для анализа — 3 записи в дневнике.",
-        reply_markup=get_dynamics_period_keyboard(),
+        "🔍 Минимум для анализа — 3 записи в дневнике.\n\n"
+        "⭐ 30 и 90 дней доступны в PRO",
+        reply_markup=get_dynamics_period_keyboard(is_pro),
     )
 
 
@@ -214,8 +275,6 @@ async def close_dynamics(callback: CallbackQuery, state: FSMContext):
         reply_markup=get_main_menu_keyboard(),
     )
 
-
-# ==================== НОВЫЕ ОБРАБОТЧИКИ ====================
 
 @router.callback_query(F.data == "dynamics_open_diary")
 async def open_diary_from_dynamics(callback: CallbackQuery, state: FSMContext):

@@ -12,17 +12,16 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     builder.add(
         KeyboardButton(text="🧠 Разобрать симптом"),
         KeyboardButton(text="📔 Дневник"),
-        KeyboardButton(text="📊 Моя динамика"),      # ← НОВАЯ КНОПКА
-        KeyboardButton(text="🧠 Проверить стресс"),
-        KeyboardButton(text="📋 История"),
-        KeyboardButton(text="🔔 Напоминания"),       # ← НОВАЯ КНОПКА
+        KeyboardButton(text="📊 Моя динамика"),
+        KeyboardButton(text="📋 История анализов"),
+        KeyboardButton(text="⭐ PRO"),  # ← НОВАЯ КНОПКА
+        KeyboardButton(text="🔔 Напоминания"),
         KeyboardButton(text="⚙️ Настройки"),
         KeyboardButton(text="❓ Помощь"),
         KeyboardButton(text="🔐 Конфиденциальность"),
     )
     
     # Располагаем кнопки по 2 в ряд
-    # Получается: 9 кнопок → 5 рядов (2, 2, 2, 2, 1)
     builder.adjust(2, 2, 2, 2, 1)
     
     return builder.as_markup(
