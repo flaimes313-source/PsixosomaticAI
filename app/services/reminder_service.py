@@ -17,30 +17,20 @@ class ReminderService:
     """Сервис для работы с напоминаниями."""
 
     def __init__(self, session_factory: async_sessionmaker, bot):
-        """
-        Инициализация сервиса.
-        
-        Args:
-            session_factory: Фабрика сессий БД
-            bot: Экземпляр бота для отправки сообщений
-        """
         self.session_factory = session_factory
         self.bot = bot
         self.running = False
         self.task = None
 
     async def start(self):
-        """Запускает шедулер."""
         if self.running:
             logger.warning("ReminderService already running")
             return
-
         self.running = True
         self.task = asyncio.create_task(self._scheduler_loop())
         logger.info("✅ ReminderService started")
 
     async def stop(self):
-        """Останавливает шедулер."""
         self.running = False
         if self.task:
             self.task.cancel()
@@ -52,38 +42,30 @@ class ReminderService:
         logger.info("ReminderService stopped")
 
     async def _scheduler_loop(self):
-        """Основной цикл шедулера."""
         logger.info("🔄 Reminder scheduler loop started")
         while self.running:
             try:
                 await self._check_reminders()
-                await asyncio.sleep(10)  # Проверяем каждые 10 секунд
+                await asyncio.sleep(10)
             except Exception as e:
                 logger.error(f"Error in reminder scheduler loop: {e}")
                 await asyncio.sleep(30)
 
     async def _check_reminders(self):
         """Проверяет, нужно ли отправить напоминания."""
-        logger.info("🔍 Checking reminders...")
-        
         async with self.session_factory() as session:
             reminder_repo = ReminderRepository(session)
-            
-            # Получаем все активные напоминания
             settings_list = await reminder_repo.get_active_reminders()
-            logger.info(f"📋 Active reminders found: {len(settings_list)}")
-            
+
             if not settings_list:
                 return
 
             for settings in settings_list:
                 if not settings.enabled or not settings.reminder_time:
-                    logger.info(f"⏭️ Reminder disabled or no time for user {settings.user_id}")
                     continue
 
                 # Проверяем, не отправляли ли уже сегодня
                 if await reminder_repo.is_reminder_sent_today(settings.user_id):
-                    logger.info(f"⏭️ Already sent today for user {settings.user_id}")
                     continue
 
                 # Получаем часовой пояс пользователя
@@ -91,57 +73,49 @@ class ReminderService:
                     user_tz = ZoneInfo(settings.timezone)
                 except Exception:
                     user_tz = ZoneInfo("UTC")
-                
-                # ====================================================
-                # 🔥 ГЛАВНОЕ ИСПРАВЛЕНИЕ: используем время пользователя
-                # ====================================================
+
+                # 🔥 ГЛАВНОЕ: ВСЕГДА используем время пользователя
                 user_now = datetime.now(user_tz)
                 user_time = user_now.time()
-                user_weekday = user_now.weekday()  # ← теперь день недели по времени пользователя
-                
-                # Проверяем время (сравниваем часы и минуты)
+                user_weekday = user_now.weekday()
+
                 reminder_hour = settings.reminder_time.hour
                 reminder_minute = settings.reminder_time.minute
-                
+
                 logger.info(f"⏰ User {settings.user_id}: now={user_time.hour}:{user_time.minute}, reminder={reminder_hour}:{reminder_minute}, weekday={user_weekday}")
-                
-                # Если время совпадает (с точностью до минуты)
-                if (user_time.hour == reminder_hour and 
-                    user_time.minute == reminder_minute):
-                    
+
+                # Проверяем совпадение времени (с запасом 1 минута)
+                if (user_time.hour == reminder_hour and
+                    abs(user_time.minute - reminder_minute) <= 1):
+
                     logger.info(f"✅ Time match for user {settings.user_id}!")
-                    
+
                     # Проверяем дни недели (по времени пользователя)
                     if settings.days_of_week is not None and len(settings.days_of_week) > 0:
                         if user_weekday not in settings.days_of_week:
-                            logger.info(f"⏭️ Wrong day for user {settings.user_id}: {user_weekday} not in {settings.days_of_week}")
+                            logger.info(f"⏭️ Wrong day for user {settings.user_id}")
                             continue
 
-                    # Отправляем напоминание
                     logger.info(f"📤 Sending reminder to user {settings.user_id}")
                     await self._send_reminder(settings.user_id, session)
                     await reminder_repo.update_last_sent(settings.user_id)
                     logger.info(f"✅ Reminder sent and updated for user {settings.user_id}")
 
     async def _send_reminder(self, user_id: int, session: AsyncSession):
-        """Отправляет напоминание пользователю."""
         try:
-            # Проверяем, есть ли уже записи сегодня
             diary_repo = DiaryRepository(session)
             today_entries = await diary_repo.get_today_entries(user_id)
-            
-            # Находим пользователя
+
             from sqlalchemy import select
             result = await session.execute(
                 select(User).where(User.telegram_id == user_id)
             )
             user = result.scalar_one_or_none()
-            
+
             if not user:
                 logger.warning(f"User {user_id} not found for reminder")
                 return
 
-            # Формируем сообщение
             if today_entries:
                 message = (
                     "📔 <b>Дневник</b>\n\n"
@@ -157,9 +131,8 @@ class ReminderService:
                     "Нажми кнопку ниже:"
                 )
 
-            # Отправляем сообщение с кнопкой
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-            
+
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(
@@ -179,7 +152,7 @@ class ReminderService:
                 reply_markup=keyboard,
                 parse_mode="HTML",
             )
-            
+
             logger.info(f"✅ Reminder sent to user {user_id}")
 
         except Exception as e:
