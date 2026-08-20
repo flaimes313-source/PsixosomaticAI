@@ -25,7 +25,7 @@ class ReminderService:
             bot: Экземпляр бота для отправки сообщений
         """
         self.session_factory = session_factory
-        self.bot = bot  # ← Сохраняем бота
+        self.bot = bot
         self.running = False
         self.task = None
 
@@ -37,7 +37,7 @@ class ReminderService:
 
         self.running = True
         self.task = asyncio.create_task(self._scheduler_loop())
-        logger.info("ReminderService started")
+        logger.info("✅ ReminderService started")
 
     async def stop(self):
         """Останавливает шедулер."""
@@ -53,21 +53,25 @@ class ReminderService:
 
     async def _scheduler_loop(self):
         """Основной цикл шедулера."""
+        logger.info("🔄 Reminder scheduler loop started")
         while self.running:
             try:
                 await self._check_reminders()
-                await asyncio.sleep(60)  # Проверяем каждую минуту
+                await asyncio.sleep(10)  # ← ИЗМЕНЕНО: проверяем каждые 10 секунд
             except Exception as e:
                 logger.error(f"Error in reminder scheduler loop: {e}")
-                await asyncio.sleep(60)
+                await asyncio.sleep(30)
 
     async def _check_reminders(self):
         """Проверяет, нужно ли отправить напоминания."""
+        logger.info("🔍 Checking reminders...")  # ← ДОБАВЛЕНО
+        
         async with self.session_factory() as session:
             reminder_repo = ReminderRepository(session)
             
             # Получаем все активные напоминания
             settings_list = await reminder_repo.get_active_reminders()
+            logger.info(f"📋 Active reminders found: {len(settings_list)}")  # ← ДОБАВЛЕНО
             
             if not settings_list:
                 return
@@ -75,19 +79,20 @@ class ReminderService:
             now_utc = datetime.now(ZoneInfo("UTC"))
             current_minute = now_utc.minute
             
-            # Проверяем только в начале каждой минуты (0-я секунда)
-            if current_minute not in (0, 1, 2):
-                return
+            # УБРАНО ОГРАНИЧЕНИЕ НА 0, 1, 2 МИНУТУ
+            # Проверяем каждую секунду, но отправляем только если совпадает время
 
             # Получаем текущий день недели (0 = понедельник, 6 = воскресенье)
             current_weekday = now_utc.weekday()
 
             for settings in settings_list:
                 if not settings.enabled or not settings.reminder_time:
+                    logger.info(f"⏭️ Reminder disabled or no time for user {settings.user_id}")
                     continue
 
                 # Проверяем, не отправляли ли уже сегодня
                 if await reminder_repo.is_reminder_sent_today(settings.user_id):
+                    logger.info(f"⏭️ Already sent today for user {settings.user_id}")
                     continue
 
                 # Получаем часовой пояс пользователя
@@ -103,18 +108,25 @@ class ReminderService:
                 reminder_hour = settings.reminder_time.hour
                 reminder_minute = settings.reminder_time.minute
                 
+                logger.info(f"⏰ User {settings.user_id}: now={user_time.hour}:{user_time.minute}, reminder={reminder_hour}:{reminder_minute}")
+                
                 # Если время совпадает (с точностью до минуты)
                 if (user_time.hour == reminder_hour and 
                     user_time.minute == reminder_minute):
                     
+                    logger.info(f"✅ Time match for user {settings.user_id}!")
+                    
                     # Проверяем дни недели
                     if settings.days_of_week is not None and len(settings.days_of_week) > 0:
                         if current_weekday not in settings.days_of_week:
+                            logger.info(f"⏭️ Wrong day for user {settings.user_id}")
                             continue
 
                     # Отправляем напоминание
+                    logger.info(f"📤 Sending reminder to user {settings.user_id}")
                     await self._send_reminder(settings.user_id, session)
                     await reminder_repo.update_last_sent(settings.user_id)
+                    logger.info(f"✅ Reminder sent and updated for user {settings.user_id}")
 
     async def _send_reminder(self, user_id: int, session: AsyncSession):
         """Отправляет напоминание пользователю."""
@@ -166,14 +178,14 @@ class ReminderService:
                 ]
             )
 
-            await self.bot.send_message(  # ← Используем self.bot
+            await self.bot.send_message(
                 chat_id=user_id,
                 text=message,
                 reply_markup=keyboard,
                 parse_mode="HTML",
             )
             
-            logger.info(f"Reminder sent to user {user_id}")
+            logger.info(f"✅ Reminder sent to user {user_id}")
 
         except Exception as e:
-            logger.error(f"Error sending reminder to user {user_id}: {e}")
+            logger.error(f"❌ Error sending reminder to user {user_id}: {e}")
