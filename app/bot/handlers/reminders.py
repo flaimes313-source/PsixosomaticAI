@@ -5,6 +5,7 @@ from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, Chat, User
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from datetime import datetime, time
 from typing import Optional, List
 
@@ -17,6 +18,7 @@ from app.bot.keyboards.reminders import (
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.repositories.reminder import ReminderRepository
+from app.db.models.user import User
 from app.utils.logging import logger
 
 router = Router()
@@ -57,7 +59,19 @@ async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_sessio
     
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
-    await reminder_repo.update(telegram_id, enabled=True)
+    
+    # 🔥 БЕРЁМ timezone ИЗ ТАБЛИЦЫ USERS
+    user_result = await db_session.execute(
+        select(User).where(User.telegram_id == telegram_id)
+    )
+    user = user_result.scalar_one_or_none()
+    user_timezone = user.timezone if user and user.timezone else "UTC"
+    
+    await reminder_repo.update(
+        telegram_id,
+        enabled=True,
+        timezone=user_timezone,  # ← ДОБАВЛЕНО
+    )
     
     await state.set_state(ReminderStates.waiting_for_time)
     
@@ -101,7 +115,19 @@ async def set_reminder_time(callback: CallbackQuery, state: FSMContext, db_sessi
     
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
-    await reminder_repo.update(telegram_id, reminder_time=reminder_time)
+    
+    # 🔥 БЕРЁМ timezone ИЗ ТАБЛИЦЫ USERS
+    user_result = await db_session.execute(
+        select(User).where(User.telegram_id == telegram_id)
+    )
+    user = user_result.scalar_one_or_none()
+    user_timezone = user.timezone if user and user.timezone else "UTC"
+    
+    await reminder_repo.update(
+        telegram_id,
+        reminder_time=reminder_time,
+        timezone=user_timezone,  # ← ДОБАВЛЕНО
+    )
     
     await state.set_state(ReminderStates.waiting_for_days)
     await state.update_data(reminder_time=reminder_time)
@@ -146,7 +172,19 @@ async def process_custom_time(message: types.Message, state: FSMContext, db_sess
     
     telegram_id = message.from_user.id
     reminder_repo = ReminderRepository(db_session)
-    await reminder_repo.update(telegram_id, reminder_time=reminder_time)
+    
+    # 🔥 БЕРЁМ timezone ИЗ ТАБЛИЦЫ USERS
+    user_result = await db_session.execute(
+        select(User).where(User.telegram_id == telegram_id)
+    )
+    user = user_result.scalar_one_or_none()
+    user_timezone = user.timezone if user and user.timezone else "UTC"
+    
+    await reminder_repo.update(
+        telegram_id,
+        reminder_time=reminder_time,
+        timezone=user_timezone,  # ← ДОБАВЛЕНО
+    )
     
     await state.set_state(ReminderStates.waiting_for_days)
     await state.update_data(reminder_time=reminder_time)
@@ -192,6 +230,13 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
     
+    # 🔥 БЕРЁМ timezone ИЗ ТАБЛИЦЫ USERS
+    user_result = await db_session.execute(
+        select(User).where(User.telegram_id == telegram_id)
+    )
+    user = user_result.scalar_one_or_none()
+    user_timezone = user.timezone if user and user.timezone else "UTC"
+    
     data = await state.get_data()
     reminder_time = data.get('reminder_time')
     
@@ -206,6 +251,7 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
         telegram_id,
         enabled=True,
         reminder_time=reminder_time,
+        timezone=user_timezone,  # ← ДОБАВЛЕНО
         days_of_week=days,
     )
     
