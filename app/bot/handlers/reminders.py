@@ -60,7 +60,7 @@ async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_sessio
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
     
-    # 🔥 БЕРЁМ timezone ИЗ ТАБЛИЦЫ USERS
+    # Берём timezone из таблицы users
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
@@ -70,7 +70,7 @@ async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_sessio
     await reminder_repo.update(
         telegram_id,
         enabled=True,
-        timezone=user_timezone,  # ← ДОБАВЛЕНО
+        timezone=user_timezone,
     )
     
     await state.set_state(ReminderStates.waiting_for_time)
@@ -116,7 +116,7 @@ async def set_reminder_time(callback: CallbackQuery, state: FSMContext, db_sessi
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
     
-    # 🔥 БЕРЁМ timezone ИЗ ТАБЛИЦЫ USERS
+    # Берём timezone из таблицы users
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
@@ -126,7 +126,7 @@ async def set_reminder_time(callback: CallbackQuery, state: FSMContext, db_sessi
     await reminder_repo.update(
         telegram_id,
         reminder_time=reminder_time,
-        timezone=user_timezone,  # ← ДОБАВЛЕНО
+        timezone=user_timezone,
     )
     
     await state.set_state(ReminderStates.waiting_for_days)
@@ -173,7 +173,7 @@ async def process_custom_time(message: types.Message, state: FSMContext, db_sess
     telegram_id = message.from_user.id
     reminder_repo = ReminderRepository(db_session)
     
-    # 🔥 БЕРЁМ timezone ИЗ ТАБЛИЦЫ USERS
+    # Берём timezone из таблицы users
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
@@ -183,7 +183,7 @@ async def process_custom_time(message: types.Message, state: FSMContext, db_sess
     await reminder_repo.update(
         telegram_id,
         reminder_time=reminder_time,
-        timezone=user_timezone,  # ← ДОБАВЛЕНО
+        timezone=user_timezone,
     )
     
     await state.set_state(ReminderStates.waiting_for_days)
@@ -230,7 +230,7 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
     
-    # 🔥 БЕРЁМ timezone ИЗ ТАБЛИЦЫ USERS
+    # Берём timezone из таблицы users
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
@@ -251,7 +251,7 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
         telegram_id,
         enabled=True,
         reminder_time=reminder_time,
-        timezone=user_timezone,  # ← ДОБАВЛЕНО
+        timezone=user_timezone,
         days_of_week=days,
     )
     
@@ -337,25 +337,33 @@ async def reminder_open_diary(callback: CallbackQuery, state: FSMContext, db_ses
     
     from app.bot.handlers.diary import start_new_diary_entry
     
-    # Создаём правильное фейковое сообщение
-    fake_user = User(
-        id=callback.from_user.id,
-        is_bot=False,
-        first_name=callback.from_user.first_name or "User",
-        last_name=callback.from_user.last_name,
-        username=callback.from_user.username,
-        language_code=callback.from_user.language_code,
-    )
+    # Создаём фейковое сообщение с правильной структурой
+    class FakeUser:
+        def __init__(self, user_id):
+            self.id = user_id
+            self.is_bot = False
+            self.first_name = "User"
+            self.last_name = None
+            self.username = None
+            self.language_code = "ru"
     
-    fake_chat = Chat(id=callback.from_user.id, type="private")
+    class FakeChat:
+        def __init__(self, chat_id):
+            self.id = chat_id
+            self.type = "private"
     
-    fake_message = Message(
-        message_id=999999,
-        date=datetime.now(),
-        chat=fake_chat,
-        from_user=fake_user,
-        text="➕ Новая запись",
-    )
+    class FakeMessage:
+        def __init__(self, user_id):
+            self.from_user = FakeUser(user_id)
+            self.chat = FakeChat(user_id)
+            self.text = "➕ Новая запись"
+            self.message_id = 999999
+            self.date = datetime.now()
+        
+        async def answer(self, *args, **kwargs):
+            pass
+    
+    fake_message = FakeMessage(callback.from_user.id)
     
     # Удаляем сообщение с напоминанием
     await callback.message.delete()
