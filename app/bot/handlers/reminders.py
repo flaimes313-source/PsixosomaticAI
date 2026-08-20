@@ -3,9 +3,9 @@
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, Message, Chat, User
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import time
+from datetime import datetime, time
 from typing import Optional, List
 
 from app.bot.states import ReminderStates
@@ -291,19 +291,30 @@ async def reminder_open_diary(callback: CallbackQuery, state: FSMContext, db_ses
     
     from app.bot.handlers.diary import start_new_diary_entry
     
-    # Создаём фейковое сообщение
-    class FakeMessage:
-        def __init__(self, user_id):
-            self.from_user = type('obj', (object,), {'id': user_id})
-            self.chat = type('obj', (object,), {'id': user_id})
-            self.text = "➕ Новая запись"
-        
-        async def answer(self, *args, **kwargs):
-            pass
+    # Создаём правильное фейковое сообщение
+    fake_user = User(
+        id=callback.from_user.id,
+        is_bot=False,
+        first_name=callback.from_user.first_name or "User",
+        last_name=callback.from_user.last_name,
+        username=callback.from_user.username,
+        language_code=callback.from_user.language_code,
+    )
     
-    fake_message = FakeMessage(callback.from_user.id)
+    fake_chat = Chat(id=callback.from_user.id, type="private")
     
+    fake_message = Message(
+        message_id=999999,
+        date=datetime.now(),
+        chat=fake_chat,
+        from_user=fake_user,
+        text="➕ Новая запись",
+    )
+    
+    # Удаляем сообщение с напоминанием
     await callback.message.delete()
+    
+    # Запускаем создание новой записи
     await start_new_diary_entry(fake_message, state, db_session)
 
 
