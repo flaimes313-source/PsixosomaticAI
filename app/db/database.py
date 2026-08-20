@@ -33,6 +33,10 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
+# ============ НОВОЕ: алиас для совместимости ============
+async_session_maker = AsyncSessionLocal  # ← Добавлено!
+# ========================================================
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """

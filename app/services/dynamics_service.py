@@ -134,13 +134,15 @@ class DynamicsService:
                 for word, count in context_counter.most_common(5)
             ]
 
-        # --- 6. Предыдущие анализы (кратко) ---
+        # --- 6. Предыдущие анализы (кратко) --- ИСПРАВЛЕНО
         analyses = await self.analysis_repo.get_user_analyses(user_id, limit=3)
         if analyses:
             summary_parts = []
             for analysis in analyses:
                 if analysis.symptom:
-                    summary_parts.append(f"{analysis.symptom} → {analysis.possible_causes[:50] if analysis.possible_causes else ''}...")
+                    # Используем поле analysis (текст) вместо possible_causes
+                    analysis_text = analysis.analysis[:80] if analysis.analysis else ""
+                    summary_parts.append(f"{analysis.symptom}: {analysis_text}...")
             stats.previous_analyses_summary = "\n".join(summary_parts)
 
         logger.info(f"Calculated dynamics statistics for user {user_id}: {len(entries)} entries")

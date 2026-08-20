@@ -11,14 +11,21 @@ from app.db.repositories.reminder import ReminderRepository
 from app.db.repositories.diary import DiaryRepository
 from app.db.models.user import User
 from app.utils.logging import logger
-from app.bot.dispatcher import dp  # Импортируем диспетчер для отправки сообщений
 
 
 class ReminderService:
     """Сервис для работы с напоминаниями."""
 
-    def __init__(self, session_factory: async_sessionmaker):
+    def __init__(self, session_factory: async_sessionmaker, bot):
+        """
+        Инициализация сервиса.
+        
+        Args:
+            session_factory: Фабрика сессий БД
+            bot: Экземпляр бота для отправки сообщений
+        """
         self.session_factory = session_factory
+        self.bot = bot  # ← Сохраняем бота
         self.running = False
         self.task = None
 
@@ -66,12 +73,9 @@ class ReminderService:
                 return
 
             now_utc = datetime.now(ZoneInfo("UTC"))
-            now_time = now_utc.time().replace(minute=0, second=0, microsecond=0)
-            current_hour = now_utc.hour
             current_minute = now_utc.minute
             
-            # Проверяем только в начале каждого часа (0-я минута)
-            # или если минута = 0, 1, 2 для надёжности
+            # Проверяем только в начале каждой минуты (0-я секунда)
             if current_minute not in (0, 1, 2):
                 return
 
@@ -87,11 +91,15 @@ class ReminderService:
                     continue
 
                 # Получаем часовой пояс пользователя
-                user_tz = ZoneInfo(settings.timezone)
-                user_now = datetime.now(user_tz)
-                user_time = user_now.time().replace(minute=0, second=0, microsecond=0)
+                try:
+                    user_tz = ZoneInfo(settings.timezone)
+                except Exception:
+                    user_tz = ZoneInfo("UTC")
                 
-                # Проверяем время (сравниваем по часам)
+                user_now = datetime.now(user_tz)
+                user_time = user_now.time()
+                
+                # Проверяем время (сравниваем часы и минуты)
                 reminder_hour = settings.reminder_time.hour
                 reminder_minute = settings.reminder_time.minute
                 
@@ -117,7 +125,6 @@ class ReminderService:
             
             # Находим пользователя
             from sqlalchemy import select
-            from app.db.models.user import User
             result = await session.execute(
                 select(User).where(User.telegram_id == user_id)
             )
@@ -159,7 +166,7 @@ class ReminderService:
                 ]
             )
 
-            await dp.bot.send_message(
+            await self.bot.send_message(  # ← Используем self.bot
                 chat_id=user_id,
                 text=message,
                 reply_markup=keyboard,

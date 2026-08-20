@@ -14,11 +14,12 @@ from app.bot.middlewares import DBSessionMiddleware
 from app.bot.handlers import (
     start, menu, help, privacy, symptom, cancel, history, stress,
     settings as settings_handler, diary,
-    dynamics_handler, reminders_handler  # ← ИЗМЕНЕНО
+    dynamics_handler, reminders_handler
 )
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
-from app.db.database import check_db_connection, engine
+from app.db.database import check_db_connection, engine, async_session_maker
+from app.services.reminder_service import ReminderService  # ← НОВЫЙ ИМПОРТ
 
 
 # Настройка логирования
@@ -68,8 +69,8 @@ async def main() -> None:
     dp.include_router(stress.router)
     dp.include_router(settings_handler.router)
     dp.include_router(diary.router)
-    dp.include_router(dynamics_handler.router)   # ← ИЗМЕНЕНО
-    dp.include_router(reminders_handler.router)  # ← ИЗМЕНЕНО
+    dp.include_router(dynamics_handler.router)
+    dp.include_router(reminders_handler.router)
     dp.include_router(cancel.router)
     dp.include_router(history.router)
     dp.include_router(errors_router)
@@ -77,6 +78,13 @@ async def main() -> None:
     
     # Настраиваем команды
     await setup_bot_commands(bot)
+    
+    # ==================== НОВОЕ: ЗАПУСК ШЕДУЛЕРА НАПОМИНАНИЙ ====================
+    logger.info("Starting ReminderService...")
+    reminder_service = ReminderService(async_session_maker, bot)
+    await reminder_service.start()
+    logger.info("ReminderService started")
+    # ========================================================================
     
     # Запускаем FastAPI сервер в фоне
     logger.info(f"Starting FastAPI server on {config_settings.API_HOST}:{config_settings.API_PORT}")
@@ -95,7 +103,9 @@ async def main() -> None:
         await dp.start_polling(bot)
     finally:
         # Graceful shutdown
+        logger.info("Shutting down...")
         fastapi_task.cancel()
+        await reminder_service.stop()  # ← ОСТАНАВЛИВАЕМ ШЕДУЛЕР
         await bot.session.close()
         await engine.dispose()
         logger.info("Application stopped")
