@@ -3,6 +3,7 @@
 """
 from sqlalchemy import (
     Integer,
+    BigInteger,  # ← ДОБАВЛЕНО
     String,
     Text,
     DateTime,
@@ -26,8 +27,10 @@ class Analysis(Base):
     __tablename__ = "analyses"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    
+    # 🔥 ИСПРАВЛЕНО: Integer → BigInteger
     user_id: Mapped[int] = mapped_column(
-        Integer,
+        BigInteger,  # ← ИЗМЕНЕНО
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

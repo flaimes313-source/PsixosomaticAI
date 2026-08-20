@@ -1,7 +1,14 @@
 """
 Модель уточняющего вопроса в базе данных.
 """
-from sqlalchemy import Integer, Text, DateTime, ForeignKey, func
+from sqlalchemy import (
+    Integer,
+    BigInteger,  # ← ДОБАВЛЕНО
+    Text,
+    DateTime,
+    ForeignKey,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
@@ -17,14 +24,18 @@ class Clarification(Base):
     __tablename__ = "clarifications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    
+    # 🔥 ИСПРАВЛЕНО: Integer → BigInteger
     analysis_id: Mapped[int] = mapped_column(
-        Integer,
+        BigInteger,  # ← ИЗМЕНЕНО
         ForeignKey("analyses.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
+    
+    # 🔥 ИСПРАВЛЕНО: Integer → BigInteger
     user_id: Mapped[int] = mapped_column(
-        Integer,
+        BigInteger,  # ← ИЗМЕНЕНО
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
