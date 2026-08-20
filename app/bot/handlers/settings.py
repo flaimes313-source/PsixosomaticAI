@@ -39,7 +39,9 @@ async def show_settings(message: types.Message, state: FSMContext):
     logger.info(f"User opened settings: {message.from_user.id}")
 
 
-@router.callback_query(F.data == "settings_delete_data")
+# ==================== ИСПРАВЛЕННЫЕ ОБРАБОТЧИКИ ====================
+
+@router.callback_query(F.data == "delete_all_data")
 async def confirm_delete_data(callback: CallbackQuery):
     """Подтверждение удаления данных."""
     await callback.answer()
@@ -60,7 +62,7 @@ async def confirm_delete_data(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "settings_delete_cancel")
+@router.callback_query(F.data == "cancel_delete")
 async def cancel_delete_data(callback: CallbackQuery):
     """Отмена удаления данных."""
     await callback.answer("Удаление отменено")
@@ -73,7 +75,7 @@ async def cancel_delete_data(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "settings_confirm_delete")
+@router.callback_query(F.data == "confirm_delete_all")
 async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession):
     """Удаляет все данные пользователя."""
     await callback.answer("Удаление данных...")
@@ -171,23 +173,9 @@ async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession
         )
 
 
-@router.callback_query(F.data == "settings_back")
-async def back_to_settings(callback: CallbackQuery):
-    """Возврат в меню настроек."""
-    await callback.answer()
-    
-    await callback.message.edit_text(
-        "⚙️ <b>Настройки</b>\n\n"
-        "Здесь вы можете управлять своими данными.\n\n"
-        "Доступные действия:",
-        reply_markup=get_settings_keyboard(),
-        parse_mode="HTML",
-    )
-
-
-@router.callback_query(F.data == "settings_close")
-async def close_settings(callback: CallbackQuery, state: FSMContext):
-    """Закрывает настройки и возвращает в главное меню."""
+@router.callback_query(F.data == "back_to_menu_from_settings")
+async def back_to_menu_from_settings(callback: CallbackQuery, state: FSMContext):
+    """Возврат в главное меню из настроек."""
     await callback.answer()
     await state.clear()
     
