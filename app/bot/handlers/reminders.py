@@ -353,18 +353,24 @@ async def reminder_open_diary(callback: CallbackQuery, state: FSMContext, db_ses
             self.type = "private"
     
     class FakeMessage:
-        def __init__(self, user_id):
+        def __init__(self, user_id, bot):
             self.from_user = FakeUser(user_id)
             self.chat = FakeChat(user_id)
             self.text = "➕ Новая запись"
             self.message_id = 999999
             self.date = datetime.now()
+            self.bot = bot
         
-        async def answer(self, *args, **kwargs):
-            """Заглушка для answer, чтобы не ломать start_new_diary_entry"""
-            pass
+        async def answer(self, text, reply_markup=None, parse_mode=None):
+            """Отправляет сообщение через бота."""
+            await self.bot.send_message(
+                chat_id=self.from_user.id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
     
-    fake_message = FakeMessage(callback.from_user.id)
+    fake_message = FakeMessage(callback.from_user.id, callback.bot)
     
     # 🔥 ЛОГИРУЕМ ДЛЯ ОТЛАДКИ
     logger.info(f"📤 FakeMessage created for user {callback.from_user.id}")
