@@ -361,15 +361,29 @@ async def reminder_open_diary(callback: CallbackQuery, state: FSMContext, db_ses
             self.date = datetime.now()
         
         async def answer(self, *args, **kwargs):
+            """Заглушка для answer, чтобы не ломать start_new_diary_entry"""
             pass
     
     fake_message = FakeMessage(callback.from_user.id)
     
+    # 🔥 ЛОГИРУЕМ ДЛЯ ОТЛАДКИ
+    logger.info(f"📤 FakeMessage created for user {callback.from_user.id}")
+    logger.info(f"📤 FakeMessage.from_user.id = {fake_message.from_user.id}")
+    logger.info(f"📤 FakeMessage.text = {fake_message.text}")
+    
     # Удаляем сообщение с напоминанием
     await callback.message.delete()
     
-    # Запускаем создание новой записи
-    await start_new_diary_entry(fake_message, state, db_session)
+    try:
+        # Запускаем создание новой записи
+        await start_new_diary_entry(fake_message, state, db_session)
+        logger.info(f"✅ start_new_diary_entry called successfully for user {callback.from_user.id}")
+    except Exception as e:
+        logger.error(f"❌ Error in start_new_diary_entry: {e}", exc_info=True)
+        await callback.message.answer(
+            "⚠️ Произошла ошибка при открытии дневника. Попробуй ещё раз через меню.",
+            reply_markup=get_main_menu_keyboard(),
+        )
 
 
 def _format_days(days: Optional[List[int]]) -> str:
