@@ -1,6 +1,7 @@
 """
 Обработчик раздела поддержки.
 """
+from html import escape
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
@@ -88,8 +89,8 @@ async def process_support_question(message: types.Message, state: FSMContext, db
                 f"📩 <b>Новое обращение в поддержку!</b>\n\n"
                 f"🆔 <b>#{support_request.id}</b>\n"
                 f"👤 Пользователь: <code>{message.from_user.id}</code>\n"
-                f"👤 Имя: {user_name}\n"
-                f"📝 Вопрос:\n{question}\n\n"
+                f"👤 Имя: {escape(user_name)}\n"
+                f"📝 Вопрос:\n{escape(question)}\n\n"
                 f"Ответ: /answer {support_request.id} <текст>"
             ),
             parse_mode="HTML",

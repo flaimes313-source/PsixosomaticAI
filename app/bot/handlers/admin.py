@@ -2,6 +2,7 @@
 Админские команды (только для владельца бота).
 """
 import asyncio
+from html import escape
 from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -117,7 +118,7 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
             user = user_result.scalar_one_or_none()
             name = user.first_name if user else "Неизвестно"
             date = entry.created_at.strftime("%d.%m.%Y")
-            text += f"• <b>{entry.user_id}</b> — {name} (добавлен {date})\n"
+            text += f"• <b>{entry.user_id}</b> — {escape(name)} (добавлен {date})\n"
         
         await callback.message.edit_text(
             text,
@@ -274,7 +275,7 @@ async def process_broadcast_text(message: types.Message, state: FSMContext, db_s
     
     await message.answer(
         "📢 <b>Проверь сообщение</b>\n\n"
-        f"Текст:\n{text}\n\n"
+        f"Текст:\n{escape(text)}\n\n"
         "Хочешь добавить картинку? Приложи её к этому сообщению.\n"
         "Если картинка не нужна — нажми 'Отправить без картинки'.",
         reply_markup=get_broadcast_options_keyboard(),
@@ -301,7 +302,7 @@ async def process_broadcast_image(message: types.Message, state: FSMContext, db_
     await message.answer_photo(
         photo=file_id,
         caption=f"📢 <b>Проверь сообщение</b>\n\n"
-                f"Текст:\n{text}\n\n"
+                f"Текст:\n{escape(text)}\n\n"
                 "Всё верно?",
         reply_markup=get_confirm_broadcast_keyboard(),
         parse_mode="HTML",
@@ -322,7 +323,7 @@ async def send_broadcast_without_image(message: types.Message, state: FSMContext
     
     await message.answer(
         f"📢 <b>Проверь сообщение</b>\n\n"
-        f"Текст:\n{text}\n\n"
+        f"Текст:\n{escape(text)}\n\n"
         "Всё верно?",
         reply_markup=get_confirm_broadcast_keyboard(),
         parse_mode="HTML",
@@ -463,7 +464,7 @@ async def show_support_requests(callback: CallbackQuery, db_session: AsyncSessio
         for req in requests[:10]:
             date = req.created_at.strftime("%d.%m.%Y %H:%M")
             text += f"<b>#{req.id}</b> от {req.user_id} ({date})\n"
-            text += f"📝 {req.message[:100]}...\n"
+            text += f"📝 {escape(req.message[:100])}...\n"
             text += f"➡️ /answer {req.id} <текст>\n\n"
         
         text += "Используйте команду /answer <ID> <текст> для ответа."
@@ -516,7 +517,7 @@ async def answer_support(message: types.Message, db_session: AsyncSession):
         await message.bot.send_message(
             chat_id=request.user_id,
             text=f"📩 <b>Ответ на обращение #{request.id}</b>\n\n"
-                 f"{answer_text}\n\n"
+                 f"{escape(answer_text)}\n\n"
                  "━━━━━━━━━━━━━━━━━━━\n"
                  "💬 Если у вас есть ещё вопросы — напишите в поддержку.",
             parse_mode="HTML",
