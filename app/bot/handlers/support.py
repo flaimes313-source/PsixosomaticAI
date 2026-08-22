@@ -19,6 +19,9 @@ from app.utils.logging import logger
 
 router = Router()
 
+# ID админа для оповещений
+ADMIN_ID = 462035571
+
 
 @router.message(F.text == "❓ Поддержка")
 async def show_support_menu(message: types.Message, state: FSMContext):
@@ -63,6 +66,7 @@ async def process_support_question(message: types.Message, state: FSMContext, db
     # Сохраняем ID обращения в FSM
     await state.update_data(request_id=support_request.id)
     
+    # Ответ пользователю
     await message.answer(
         "✅ <b>Ваше обращение отправлено!</b>\n\n"
         "Мы ответим вам в ближайшее время.\n"
@@ -74,6 +78,31 @@ async def process_support_question(message: types.Message, state: FSMContext, db
     await state.clear()
     
     logger.info(f"Support request created: id={support_request.id}, user={message.from_user.id}")
+    
+    # ==================== ОПОВЕЩЕНИЕ АДМИНА ====================
+    try:
+        user = await db_session.execute(
+            select(User).where(User.telegram_id == message.from_user.id)
+        )
+        user = user.scalar_one_or_none()
+        user_name = user.first_name if user else "Неизвестно"
+        
+        await message.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=(
+                f"📩 <b>Новое обращение в поддержку!</b>\n\n"
+                f"🆔 <b>#{support_request.id}</b>\n"
+                f"👤 Пользователь: <code>{message.from_user.id}</code>\n"
+                f"👤 Имя: {user_name}\n"
+                f"📝 Вопрос:\n{question}\n\n"
+                f"Ответ: /answer {support_request.id} <текст>"
+            ),
+            parse_mode="HTML",
+        )
+        logger.info(f"Admin notified about support request #{support_request.id}")
+    except Exception as e:
+        logger.error(f"Failed to notify admin about support request: {e}")
+    # ===========================================================
 
 
 @router.message(SupportStates.waiting_for_question)

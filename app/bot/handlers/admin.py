@@ -5,28 +5,32 @@ import asyncio
 from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 from datetime import datetime
 
 from app.db.models.whitelist import ProWhitelist
 from app.db.models.broadcast import Broadcast
+from app.db.models.support import SupportRequest
 from app.db.models.user import User
+from app.db.models.analysis import Analysis  # ← ДОБАВЛЕНО
+from app.db.models.diary import DiaryEntry  # ← ДОБАВЛЕНО
+from app.db.models.subscription import Subscription, PlanType  # ← ДОБАВЛЕНО
 from app.bot.states import AdminStates
 from app.bot.keyboards.admin import (
     get_admin_menu_keyboard,
     get_broadcast_keyboard,
     get_confirm_broadcast_keyboard,
     get_broadcast_options_keyboard,
+    get_broadcast_recipients_keyboard,
 )
+from app.bot.keyboards import get_main_menu_keyboard
 from app.utils.logging import logger
 
 router = Router()
 
-# ==================== ВАШ TELEGRAM ID ====================
-ADMIN_ID = 462035571  # ← ТОЛЬКО ЭТОТ АККАУНТ ИМЕЕТ ДОСТУП
-# ========================================================
+ADMIN_ID = 462035571  # ВАШ TELEGRAM ID
 
 
 def is_admin(user_id: int) -> bool:
@@ -75,13 +79,11 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
     elif action == "broadcast":
         await callback.message.edit_text(
             "📢 <b>Создать рассылку</b>\n\n"
-            "Введи текст сообщения для рассылки.\n"
-            "Можно отправить картинку (приложи файлом к сообщению).\n\n"
-            "Чтобы отменить — нажми /cancel",
-            reply_markup=get_broadcast_keyboard(),
+            "Выбери получателей:",
+            reply_markup=get_broadcast_recipients_keyboard(),
             parse_mode="HTML",
         )
-        await state.set_state(AdminStates.waiting_for_broadcast_text)
+        await state.set_state(AdminStates.waiting_for_broadcast_recipients)
     
     elif action == "support_requests":
         await show_support_requests(callback, db_session)
@@ -94,39 +96,47 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
 
 async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
     """Показывает белый список PRO."""
-    result = await db_session.execute(
-        select(ProWhitelist).order_by(ProWhitelist.created_at.desc())
-    )
-    entries = result.scalars().all()
-    
-    if not entries:
+    try:
+        result = await db_session.execute(
+            select(ProWhitelist).order_by(ProWhitelist.created_at.desc())
+        )
+        entries = result.scalars().all()
+        
+        if not entries:
+            await callback.message.edit_text(
+                "📋 <b>Белый список PRO</b>\n\n"
+                "Список пуст.\n\n"
+                "Добавить: /add_pro <Telegram ID>\n"
+                "Удалить: /remove_pro <Telegram ID>",
+                reply_markup=get_admin_menu_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+        
+        text = "📋 <b>Белый список PRO</b>\n\n"
+        for entry in entries:
+            user_result = await db_session.execute(
+                select(User).where(User.telegram_id == entry.user_id)
+            )
+            user = user_result.scalar_one_or_none()
+            name = user.first_name if user else "Неизвестно"
+            date = entry.created_at.strftime("%d.%m.%Y")
+            text += f"• <b>{entry.user_id}</b> — {name} (добавлен {date})\n"
+        
+        text += "\n\nДобавить: /add_pro <ID>\nУдалить: /remove_pro <ID>"
+        
         await callback.message.edit_text(
-            "📋 <b>Белый список PRO</b>\n\n"
-            "Список пуст.\n\n"
-            "Добавить: /add_pro <Telegram ID>\n"
-            "Удалить: /remove_pro <Telegram ID>",
+            text,
             reply_markup=get_admin_menu_keyboard(),
             parse_mode="HTML",
         )
-        return
-    
-    text = "📋 <b>Белый список PRO</b>\n\n"
-    for entry in entries:
-        user_result = await db_session.execute(
-            select(User).where(User.telegram_id == entry.user_id)
+    except Exception as e:
+        logger.error(f"Error in show_whitelist: {e}")
+        await callback.message.edit_text(
+            "❌ Ошибка при загрузке белого списка.",
+            reply_markup=get_admin_menu_keyboard(),
+            parse_mode="HTML",
         )
-        user = user_result.scalar_one_or_none()
-        name = user.first_name if user else "Неизвестно"
-        date = entry.created_at.strftime("%d.%m.%Y")
-        text += f"• <b>{entry.user_id}</b> — {name} (добавлен {date})\n"
-    
-    text += "\n\nДобавить: /add_pro <ID>\nУдалить: /remove_pro <ID>"
-    
-    await callback.message.edit_text(
-        text,
-        reply_markup=get_admin_menu_keyboard(),
-        parse_mode="HTML",
-    )
 
 
 @router.message(Command("add_pro"))
@@ -151,33 +161,34 @@ async def add_pro_command(message: types.Message, db_session: AsyncSession):
         await message.answer("❌ Telegram ID должен быть числом.")
         return
 
-    # Проверяем, существует ли пользователь в БД
-    result = await db_session.execute(
-        select(User).where(User.telegram_id == target_user_id)
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        await message.answer(f"⚠️ Пользователь с ID {target_user_id} не найден в базе.")
-        return
+    try:
+        result = await db_session.execute(
+            select(User).where(User.telegram_id == target_user_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            await message.answer(f"⚠️ Пользователь с ID {target_user_id} не найден в базе.")
+            return
 
-    # Проверяем, есть ли уже в белом списке
-    result = await db_session.execute(
-        select(ProWhitelist).where(ProWhitelist.user_id == target_user_id)
-    )
-    if result.scalar_one_or_none():
-        await message.answer(f"ℹ️ Пользователь {target_user_id} уже в белом списке.")
-        return
+        result = await db_session.execute(
+            select(ProWhitelist).where(ProWhitelist.user_id == target_user_id)
+        )
+        if result.scalar_one_or_none():
+            await message.answer(f"ℹ️ Пользователь {target_user_id} уже в белом списке.")
+            return
 
-    # Добавляем в белый список
-    whitelist_entry = ProWhitelist(
-        user_id=target_user_id,
-        added_by=message.from_user.id,
-    )
-    db_session.add(whitelist_entry)
-    await db_session.commit()
+        whitelist_entry = ProWhitelist(
+            user_id=target_user_id,
+            added_by=message.from_user.id,
+        )
+        db_session.add(whitelist_entry)
+        await db_session.commit()
 
-    logger.info(f"Admin {message.from_user.id} added user {target_user_id} to PRO whitelist")
-    await message.answer(f"✅ Пользователь {target_user_id} добавлен в белый список PRO!")
+        logger.info(f"Admin {message.from_user.id} added user {target_user_id} to PRO whitelist")
+        await message.answer(f"✅ Пользователь {target_user_id} добавлен в белый список PRO!")
+    except Exception as e:
+        logger.error(f"Error in add_pro: {e}")
+        await message.answer("❌ Ошибка при добавлении пользователя.")
 
 
 @router.message(Command("remove_pro"))
@@ -202,22 +213,63 @@ async def remove_pro_command(message: types.Message, db_session: AsyncSession):
         await message.answer("❌ Telegram ID должен быть числом.")
         return
 
-    result = await db_session.execute(
-        select(ProWhitelist).where(ProWhitelist.user_id == target_user_id)
-    )
-    entry = result.scalar_one_or_none()
-    if not entry:
-        await message.answer(f"⚠️ Пользователь {target_user_id} не найден в белом списке.")
-        return
+    try:
+        result = await db_session.execute(
+            select(ProWhitelist).where(ProWhitelist.user_id == target_user_id)
+        )
+        entry = result.scalar_one_or_none()
+        if not entry:
+            await message.answer(f"⚠️ Пользователь {target_user_id} не найден в белом списке.")
+            return
 
-    await db_session.delete(entry)
-    await db_session.commit()
+        await db_session.delete(entry)
+        await db_session.commit()
 
-    logger.info(f"Admin {message.from_user.id} removed user {target_user_id} from PRO whitelist")
-    await message.answer(f"✅ Пользователь {target_user_id} удалён из белого списка PRO.")
+        logger.info(f"Admin {message.from_user.id} removed user {target_user_id} from PRO whitelist")
+        await message.answer(f"✅ Пользователь {target_user_id} удалён из белого списка PRO.")
+    except Exception as e:
+        logger.error(f"Error in remove_pro: {e}")
+        await message.answer("❌ Ошибка при удалении пользователя.")
 
 
 # ==================== РАССЫЛКА ====================
+
+@router.message(AdminStates.waiting_for_broadcast_recipients, F.text)
+async def process_broadcast_recipients(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Выбор получателей рассылки."""
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Доступ запрещён.")
+        await state.clear()
+        return
+    
+    choice = message.text.strip()
+    
+    if choice == "📨 Все пользователи":
+        await state.update_data(recipients="all")
+    elif choice == "📨 Только PRO":
+        await state.update_data(recipients="pro")
+    elif choice == "📨 Только FREE":
+        await state.update_data(recipients="free")
+    elif choice.startswith("📨 По ID:"):
+        ids_str = choice.replace("📨 По ID:", "").strip()
+        user_ids = [int(x.strip()) for x in ids_str.split(",") if x.strip().isdigit()]
+        await state.update_data(recipients="ids", user_ids=user_ids)
+    else:
+        await message.answer(
+            "❌ Неверный выбор. Используй кнопки.",
+            reply_markup=get_broadcast_recipients_keyboard(),
+        )
+        return
+    
+    await message.answer(
+        "📢 <b>Введи текст сообщения для рассылки.</b>\n\n"
+        "Можно отправить картинку (приложи файлом к следующему сообщению).\n\n"
+        "Чтобы отменить — нажми /cancel",
+        reply_markup=get_broadcast_keyboard(),
+        parse_mode="HTML",
+    )
+    await state.set_state(AdminStates.waiting_for_broadcast_text)
+
 
 @router.message(AdminStates.waiting_for_broadcast_text, F.text)
 async def process_broadcast_text(message: types.Message, state: FSMContext, db_session: AsyncSession):
@@ -228,8 +280,6 @@ async def process_broadcast_text(message: types.Message, state: FSMContext, db_s
         return
     
     text = message.text.strip()
-    
-    # Сохраняем текст в FSM
     await state.update_data(broadcast_text=text)
     
     await message.answer(
@@ -251,10 +301,8 @@ async def process_broadcast_image(message: types.Message, state: FSMContext, db_
         await state.clear()
         return
     
-    # Получаем file_id картинки
     photo = message.photo[-1]
     file_id = photo.file_id
-    
     await state.update_data(broadcast_image=file_id)
     await state.set_state(AdminStates.waiting_for_broadcast_confirm)
     
@@ -281,7 +329,6 @@ async def send_broadcast_without_image(message: types.Message, state: FSMContext
     
     data = await state.get_data()
     text = data.get("broadcast_text", "")
-    
     await state.update_data(broadcast_image=None)
     await state.set_state(AdminStates.waiting_for_broadcast_confirm)
     
@@ -306,15 +353,47 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     data = await state.get_data()
     text = data.get("broadcast_text", "")
     image = data.get("broadcast_image")
+    recipients_type = data.get("recipients", "all")
+    user_ids = data.get("user_ids", [])
     
-    # Получаем всех пользователей
-    result = await db_session.execute(select(User))
-    users = result.scalars().all()
+    # Получаем пользователей
+    if recipients_type == "all":
+        result = await db_session.execute(select(User))
+        users = result.scalars().all()
+    elif recipients_type == "pro":
+        result = await db_session.execute(
+            select(User).join(ProWhitelist, User.telegram_id == ProWhitelist.user_id)
+        )
+        users = result.scalars().all()
+    elif recipients_type == "free":
+        result = await db_session.execute(
+            select(User).where(
+                ~User.telegram_id.in_(
+                    select(ProWhitelist.user_id)
+                )
+            )
+        )
+        users = result.scalars().all()
+    elif recipients_type == "ids" and user_ids:
+        users = []
+        for uid in user_ids:
+            result = await db_session.execute(
+                select(User).where(User.telegram_id == uid)
+            )
+            user = result.scalar_one_or_none()
+            if user:
+                users.append(user)
+    else:
+        await callback.message.edit_text("❌ Не выбраны получатели.", reply_markup=get_admin_menu_keyboard())
+        return
+    
+    if not users:
+        await callback.message.edit_text("❌ Нет пользователей для рассылки.", reply_markup=get_admin_menu_keyboard())
+        return
     
     success_count = 0
     fail_count = 0
     
-    # Сохраняем рассылку в БД
     broadcast = Broadcast(
         title="Рассылка",
         message=text,
@@ -325,7 +404,6 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     db_session.add(broadcast)
     await db_session.commit()
     
-    # Отправляем сообщения
     for user in users:
         try:
             if image:
@@ -345,15 +423,11 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
         except Exception as e:
             logger.error(f"Failed to send broadcast to {user.telegram_id}: {e}")
             fail_count += 1
-        
-        # Небольшая задержка, чтобы не превысить лимиты Telegram
         await asyncio.sleep(0.05)
     
-    # Обновляем статус рассылки
     broadcast.is_sent = True
     broadcast.sent_at = datetime.now()
     await db_session.commit()
-    
     await state.clear()
     
     await callback.message.edit_text(
@@ -371,7 +445,6 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
     """Отмена рассылки."""
     await callback.answer("Рассылка отменена")
     await state.clear()
-    
     await callback.message.edit_text(
         "🛡️ <b>Админ-панель</b>\n\n"
         "Выбери действие:",
@@ -384,38 +457,44 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
 
 async def show_support_requests(callback: CallbackQuery, db_session: AsyncSession):
     """Показывает обращения в поддержку."""
-    from app.db.models.support import SupportRequest
-    
-    result = await db_session.execute(
-        select(SupportRequest)
-        .where(SupportRequest.is_answered == False)
-        .order_by(SupportRequest.created_at.desc())
-    )
-    requests = result.scalars().all()
-    
-    if not requests:
+    try:
+        result = await db_session.execute(
+            select(SupportRequest)
+            .where(SupportRequest.is_answered == False)
+            .order_by(SupportRequest.created_at.desc())
+        )
+        requests = result.scalars().all()
+        
+        if not requests:
+            await callback.message.edit_text(
+                "📋 <b>Обращения в поддержку</b>\n\n"
+                "Новых обращений нет.",
+                reply_markup=get_admin_menu_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+        
+        text = "📋 <b>Обращения в поддержку</b>\n\n"
+        for req in requests[:10]:
+            date = req.created_at.strftime("%d.%m.%Y %H:%M")
+            text += f"<b>#{req.id}</b> от {req.user_id} ({date})\n"
+            text += f"📝 {req.message[:100]}...\n"
+            text += f"➡️ /answer {req.id} <текст>\n\n"
+        
+        text += "Используйте команду /answer <ID> <текст> для ответа."
+        
         await callback.message.edit_text(
-            "📋 <b>Обращения в поддержку</b>\n\n"
-            "Новых обращений нет.",
+            text,
             reply_markup=get_admin_menu_keyboard(),
             parse_mode="HTML",
         )
-        return
-    
-    text = "📋 <b>Обращения в поддержку</b>\n\n"
-    for req in requests[:10]:
-        date = req.created_at.strftime("%d.%m.%Y %H:%M")
-        text += f"<b>#{req.id}</b> от {req.user_id} ({date})\n"
-        text += f"📝 {req.message[:100]}...\n"
-        text += f"➡️ /answer {req.id} <текст>\n\n"
-    
-    text += "Используйте команду /answer <ID> <текст> для ответа."
-    
-    await callback.message.edit_text(
-        text,
-        reply_markup=get_admin_menu_keyboard(),
-        parse_mode="HTML",
-    )
+    except Exception as e:
+        logger.error(f"Error in show_support_requests: {e}")
+        await callback.message.edit_text(
+            "❌ Ошибка при загрузке обращений.",
+            reply_markup=get_admin_menu_keyboard(),
+            parse_mode="HTML",
+        )
 
 
 @router.message(Command("answer"))
@@ -424,9 +503,7 @@ async def answer_support(message: types.Message, db_session: AsyncSession):
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         return
-    
-    from app.db.models.support import SupportRequest
-    
+
     args = message.text.split(maxsplit=2)
     if len(args) < 3:
         await message.answer(
@@ -435,25 +512,23 @@ async def answer_support(message: types.Message, db_session: AsyncSession):
             "Например: /answer 5 Спасибо за обращение!"
         )
         return
-    
+
     try:
         request_id = int(args[1])
         answer_text = args[2]
     except ValueError:
         await message.answer("❌ ID должен быть числом.")
         return
-    
-    # Находим обращение
-    result = await db_session.execute(
-        select(SupportRequest).where(SupportRequest.id == request_id)
-    )
-    request = result.scalar_one_or_none()
-    if not request:
-        await message.answer(f"❌ Обращение #{request_id} не найдено.")
-        return
-    
-    # Отправляем ответ пользователю
+
     try:
+        result = await db_session.execute(
+            select(SupportRequest).where(SupportRequest.id == request_id)
+        )
+        request = result.scalar_one_or_none()
+        if not request:
+            await message.answer(f"❌ Обращение #{request_id} не найдено.")
+            return
+
         await message.bot.send_message(
             chat_id=request.user_id,
             text=f"📩 <b>Ответ на обращение #{request.id}</b>\n\n"
@@ -462,57 +537,52 @@ async def answer_support(message: types.Message, db_session: AsyncSession):
                  "💬 Если у вас есть ещё вопросы — напишите в поддержку.",
             parse_mode="HTML",
         )
+
+        request.is_answered = True
+        request.answer = answer_text
+        request.answered_by = message.from_user.id
+        request.answered_at = datetime.now()
+        await db_session.commit()
+
+        await message.answer(f"✅ Ответ на обращение #{request_id} отправлен!")
     except Exception as e:
-        await message.answer(f"⚠️ Не удалось отправить ответ пользователю: {e}")
-        return
-    
-    # Обновляем статус обращения
-    request.is_answered = True
-    request.answer = answer_text
-    request.answered_by = message.from_user.id
-    request.answered_at = datetime.now()
-    await db_session.commit()
-    
-    await message.answer(f"✅ Ответ на обращение #{request_id} отправлен!")
+        logger.error(f"Error in answer_support: {e}")
+        await message.answer(f"❌ Ошибка при ответе: {e}")
 
 
 # ==================== СТАТИСТИКА ====================
 
 async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
     """Показывает статистику бота."""
-    from app.db.models.user import User
-    from app.db.models.analysis import Analysis
-    from app.db.models.diary import DiaryEntry
-    from app.db.models.subscription import Subscription, PlanType
-    
-    # Количество пользователей
-    users_result = await db_session.execute(select(User))
-    users_count = len(users_result.scalars().all())
-    
-    # Количество анализов
-    analyses_result = await db_session.execute(select(Analysis))
-    analyses_count = len(analyses_result.scalars().all())
-    
-    # Количество записей в дневнике
-    diary_result = await db_session.execute(select(DiaryEntry))
-    diary_count = len(diary_result.scalars().all())
-    
-    # Количество PRO-пользователей
-    pro_result = await db_session.execute(
-        select(Subscription).where(Subscription.plan == PlanType.PRO)
-    )
-    pro_count = len(pro_result.scalars().all())
-    
-    text = (
-        "📊 <b>Статистика бота</b>\n\n"
-        f"👤 Пользователей: <b>{users_count}</b>\n"
-        f"🧠 Анализов: <b>{analyses_count}</b>\n"
-        f"📔 Записей в дневнике: <b>{diary_count}</b>\n"
-        f"⭐ PRO-пользователей: <b>{pro_count}</b>"
-    )
-    
-    await callback.message.edit_text(
-        text,
-        reply_markup=get_admin_menu_keyboard(),
-        parse_mode="HTML",
-    )
+    try:
+        from app.db.models.analysis import Analysis
+        from app.db.models.diary import DiaryEntry
+        from app.db.models.subscription import Subscription, PlanType
+        
+        users_count = (await db_session.execute(select(func.count()).select_from(User))).scalar()
+        analyses_count = (await db_session.execute(select(func.count()).select_from(Analysis))).scalar()
+        diary_count = (await db_session.execute(select(func.count()).select_from(DiaryEntry))).scalar()
+        pro_count = (await db_session.execute(
+            select(func.count()).select_from(Subscription).where(Subscription.plan == PlanType.PRO)
+        )).scalar()
+        
+        text = (
+            "📊 <b>Статистика бота</b>\n\n"
+            f"👤 Пользователей: <b>{users_count or 0}</b>\n"
+            f"🧠 Анализов: <b>{analyses_count or 0}</b>\n"
+            f"📔 Записей в дневнике: <b>{diary_count or 0}</b>\n"
+            f"⭐ PRO-пользователей: <b>{pro_count or 0}</b>"
+        )
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_admin_menu_keyboard(),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error(f"Error in show_stats: {e}")
+        await callback.message.edit_text(
+            "❌ Ошибка при загрузке статистики.",
+            reply_markup=get_admin_menu_keyboard(),
+            parse_mode="HTML",
+        )
