@@ -73,13 +73,14 @@ class PaymentService:
             },
         )
 
-        # Создаём платеж в ЮKassa
+        # ==================== ИСПРАВЛЕНО ====================
+        # Создаём платеж в ЮKassa (параметр называется metadata, а не payment_metadata)
         result = await self.yookassa.create_payment(
             amount=amount,
             currency=currency,
             description=f"Psychosomatic PRO — {duration_days} дней",
             return_url=settings.YOOKASSA_RETURN_URL,
-            payment_metadata={
+            metadata={  # ← ИСПРАВЛЕНО
                 "user_id": str(user_id),
                 "plan": "pro",
                 "duration_days": str(duration_days),
@@ -87,6 +88,7 @@ class PaymentService:
             },
             idempotence_key=idempotence_key,
         )
+        # ===================================================
 
         if not result.get("success"):
             # Отмечаем платеж как неудачный
