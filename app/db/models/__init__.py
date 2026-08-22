@@ -9,3 +9,6 @@ from .reminder import ReminderSettings
 from .subscription import Subscription, PlanType, SubscriptionStatus
 from .usage import UserUsage
 from .payment import Payment, PaymentStatus
+from .whitelist import ProWhitelist  # ← НОВОЕ
+from .support import SupportRequest   # ← НОВОЕ
+from .broadcast import Broadcast      # ← НОВОЕ

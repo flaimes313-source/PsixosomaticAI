@@ -14,7 +14,8 @@ from app.bot.middlewares import DBSessionMiddleware
 from app.bot.handlers import (
     start, menu, help, privacy, symptom, cancel, history, stress,
     settings as settings_handler, diary,
-    dynamics_handler, reminders_handler, pro_handler
+    dynamics_handler, reminders_handler, pro_handler,
+    admin_handler, support_handler  # ← ДОБАВЛЕНЫ admin_handler, support_handler
 )
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
@@ -76,7 +77,7 @@ async def main() -> None:
     dp.update.middleware(DBSessionMiddleware())
     logger.info("Middleware registered")
     
-    # Регистрируем обработчики (порядок важен!)
+    # ==================== РЕГИСТРИРУЕМ ОБРАБОТЧИКИ ====================
     dp.include_router(start.router)
     dp.include_router(menu.router)
     dp.include_router(help.router)
@@ -88,6 +89,8 @@ async def main() -> None:
     dp.include_router(dynamics_handler.router) # Сценарий "Моя динамика"
     dp.include_router(reminders_handler.router)# Сценарий "Напоминания"
     dp.include_router(pro_handler.router)      # Сценарий "PRO"
+    dp.include_router(admin_handler.router)    # ← НОВЫЙ: Админ-панель
+    dp.include_router(support_handler.router)  # ← НОВЫЙ: Поддержка
     dp.include_router(cancel.router)           # Команда /cancel
     dp.include_router(history.router)          # История анализов
     dp.include_router(errors_router)           # Глобальный обработчик ошибок
@@ -105,17 +108,15 @@ async def main() -> None:
     await reminder_service.start()
     logger.info("ReminderService started")
     
-    # ==================== НОВОЕ: ЗАПУСК РЕКОНСИЛЯЦИИ ПЛАТЕЖЕЙ ====================
+    # Запуск реконсиляции платежей
     logger.info("Starting PaymentReconciliationService...")
     reconciliation_service = PaymentReconciliationService(async_session_maker)
     await reconciliation_service.start()
     logger.info("PaymentReconciliationService started")
-    # ========================================================================
 
-    # ==================== НОВОЕ: ПОДКЛЮЧЕНИЕ WEBHOOK ====================
+    # Подключение webhook
     fastapi_app.include_router(yookassa_webhook_router)
     logger.info("YooKassa webhook router registered")
-    # ========================================================================
     
     # Запускаем FastAPI сервер в фоне
     logger.info(f"Starting FastAPI server on {config_settings.API_HOST}:{config_settings.API_PORT}")

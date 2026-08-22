@@ -64,10 +64,28 @@ class ReminderStates(StatesGroup):
     waiting_for_days = State()         # Ожидание выбора дней недели
 
 
-# ==================== НОВОЕ: СОСТОЯНИЯ ДЛЯ PRO ====================
-
 class ProStates(StatesGroup):
     """
     Состояния для раздела PRO и оплаты.
     """
     waiting_for_payment = State()      # Ожидание подтверждения оплаты
+
+
+# ==================== НОВОЕ: СОСТОЯНИЯ ДЛЯ АДМИН-ПАНЕЛИ ====================
+
+class AdminStates(StatesGroup):
+    """
+    Состояния для админ-панели.
+    """
+    waiting_for_broadcast_text = State()   # Ожидание текста для рассылки
+    waiting_for_broadcast_image = State()  # Ожидание картинки для рассылки
+    waiting_for_broadcast_confirm = State()# Подтверждение рассылки
+
+
+# ==================== НОВОЕ: СОСТОЯНИЯ ДЛЯ ПОДДЕРЖКИ ====================
+
+class SupportStates(StatesGroup):
+    """
+    Состояния для раздела поддержки.
+    """
+    waiting_for_question = State()         # Ожидание вопроса от пользователя

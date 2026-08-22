@@ -14,15 +14,16 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
         KeyboardButton(text="📔 Дневник"),
         KeyboardButton(text="📊 Моя динамика"),
         KeyboardButton(text="📋 История анализов"),
-        KeyboardButton(text="⭐ PRO"),  # ← НОВАЯ КНОПКА
+        KeyboardButton(text="⭐ PRO"),
         KeyboardButton(text="🔔 Напоминания"),
         KeyboardButton(text="⚙️ Настройки"),
+        KeyboardButton(text="❓ Поддержка"),  # ← НОВАЯ КНОПКА
         KeyboardButton(text="❓ Помощь"),
         KeyboardButton(text="🔐 Конфиденциальность"),
     )
     
-    # Располагаем кнопки по 2 в ряд
-    builder.adjust(2, 2, 2, 2, 1)
+    # Располагаем кнопки по 2 в ряд (10 кнопок → 5 рядов)
+    builder.adjust(2, 2, 2, 2, 2)
     
     return builder.as_markup(
         resize_keyboard=True,

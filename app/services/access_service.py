@@ -3,12 +3,14 @@
 """
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.db.repositories.subscription import SubscriptionRepository
 from app.db.repositories.usage import UsageRepository
 from app.db.models.subscription import PlanType, SubscriptionStatus
+from app.db.models.whitelist import ProWhitelist  # ← НОВЫЙ ИМПОРТ
 from app.services.features import Feature, AccessLevel, get_feature_access
 from app.utils.logging import logger
 
@@ -23,8 +25,18 @@ class AccessService:
 
     async def is_pro(self, user_id: int) -> bool:
         """
-        Проверяет, является ли пользователь PRO.
+        Проверяет, является ли пользователь PRO (подписка или белый список).
         """
+        # ==================== НОВОЕ: ПРОВЕРКА БЕЛОГО СПИСКА ====================
+        result = await self.db_session.execute(
+            select(ProWhitelist).where(ProWhitelist.user_id == user_id)
+        )
+        if result.scalar_one_or_none():
+            logger.info(f"User {user_id} is PRO via whitelist")
+            return True
+        # ====================================================================
+
+        # Проверяем обычную подписку
         subscription = await self.subscription_repo.get_active_subscription(user_id)
         if not subscription:
             return False
@@ -43,6 +55,13 @@ class AccessService:
         """
         Получить текущий план пользователя.
         """
+        # Проверяем белый список
+        result = await self.db_session.execute(
+            select(ProWhitelist).where(ProWhitelist.user_id == user_id)
+        )
+        if result.scalar_one_or_none():
+            return PlanType.PRO
+
         subscription = await self.subscription_repo.get_active_subscription(user_id)
         if not subscription:
             return PlanType.FREE
@@ -60,7 +79,7 @@ class AccessService:
         if required_level == AccessLevel.FREE:
             return True
         
-        # Если фича PRO — проверяем подписку
+        # Если фича PRO — проверяем подписку или белый список
         if required_level == AccessLevel.PRO:
             return await self.is_pro(user_id)
         
@@ -70,6 +89,19 @@ class AccessService:
         """
         Получить информацию о плане пользователя для отображения.
         """
+        # Проверяем белый список
+        result = await self.db_session.execute(
+            select(ProWhitelist).where(ProWhitelist.user_id == user_id)
+        )
+        if result.scalar_one_or_none():
+            return {
+                "plan": PlanType.PRO,
+                "status": SubscriptionStatus.ACTIVE,
+                "is_active": True,
+                "expires_at": None,
+                "is_whitelist": True,
+            }
+
         subscription = await self.subscription_repo.get_by_user_id(user_id)
         
         if not subscription:
@@ -78,6 +110,7 @@ class AccessService:
                 "status": SubscriptionStatus.ACTIVE,
                 "is_active": True,
                 "expires_at": None,
+                "is_whitelist": False,
             }
         
         is_active = (
@@ -90,6 +123,7 @@ class AccessService:
             "status": subscription.status,
             "is_active": is_active,
             "expires_at": subscription.expires_at,
+            "is_whitelist": False,
         }
 
     async def get_diary_limit(self, user_id: int) -> int:
