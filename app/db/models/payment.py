@@ -31,8 +31,14 @@ class Payment(Base):
     provider = Column(String(50), default="yookassa", nullable=False)
     provider_payment_id = Column(String(100), nullable=True, index=True)  # ID от ЮKassa
     
-    # Статус
-    status = Column(SQLEnum(PaymentStatus), default=PaymentStatus.PENDING, nullable=False)
+    # ==================== ИСПРАВЛЕНО ====================
+    # Добавлен параметр validate_strings=True для корректной работы с Enum
+    status = Column(
+        SQLEnum(PaymentStatus, validate_strings=True),
+        default=PaymentStatus.PENDING,
+        nullable=False
+    )
+    # ====================================================
     
     # Сумма и валюта
     amount = Column(Numeric(10, 2), nullable=False)
@@ -48,8 +54,8 @@ class Payment(Base):
     # Ключ идемпотентности
     idempotence_key = Column(String(100), nullable=True, unique=True, index=True)
     
-    # Метаданные (JSON) — переименовано, чтобы не конфликтовать с SQLAlchemy
-    payment_metadata = Column(JSON, nullable=True)  # ← ИСПРАВЛЕНО: было metadata
+    # Метаданные (JSON)
+    payment_metadata = Column(JSON, nullable=True)
     
     # Временные метки
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
