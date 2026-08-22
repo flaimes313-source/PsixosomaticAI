@@ -7,8 +7,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func  # ← ДОБАВЛЕН func
-from datetime import datetime  # ← ДОБАВЛЕН datetime
+from sqlalchemy import select, delete, func
+from datetime import datetime
 
 from app.db.models.whitelist import ProWhitelist
 from app.db.models.broadcast import Broadcast
@@ -24,8 +24,9 @@ from app.utils.logging import logger
 
 router = Router()
 
-# ⚠️ УКАЖИТЕ ВАШ TELEGRAM ID
-ADMIN_ID = 5997299722  # ← ЗАМЕНИТЕ НА СВОЙ
+# ==================== ВАШ TELEGRAM ID ====================
+ADMIN_ID = 462035571  # ← ТОЛЬКО ЭТОТ АККАУНТ ИМЕЕТ ДОСТУП
+# ========================================================
 
 
 def is_admin(user_id: int) -> bool:
