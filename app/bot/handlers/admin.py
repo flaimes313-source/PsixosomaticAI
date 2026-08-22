@@ -440,7 +440,7 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== ПОДДЕРЖКА ====================
+# ==================== ПОДДЕРЖКА (для админа) ====================
 
 async def show_support_requests(callback: CallbackQuery, db_session: AsyncSession):
     try:
