@@ -48,8 +48,8 @@ class Payment(Base):
     # Ключ идемпотентности
     idempotence_key = Column(String(100), nullable=True, unique=True, index=True)
     
-    # Метаданные (JSON)
-    metadata = Column(JSON, nullable=True)  # ← JSON теперь импортирован
+    # Метаданные (JSON) — переименовано, чтобы не конфликтовать с SQLAlchemy
+    payment_metadata = Column(JSON, nullable=True)  # ← ИСПРАВЛЕНО: было metadata
     
     # Временные метки
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -6,11 +6,13 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from zoneinfo import ZoneInfo
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.db.repositories.payment import PaymentRepository
 from app.db.repositories.subscription import SubscriptionRepository
 from app.db.models.payment import PaymentStatus
 from app.db.models.subscription import PlanType, SubscriptionStatus
+from app.db.models.user import User
 from app.services.yookassa_service import YooKassaService
 from app.services.access_service import AccessService
 from app.utils.logging import logger
@@ -35,8 +37,6 @@ class PaymentService:
         Создать платёж для PRO.
         """
         # Проверяем, что пользователь существует
-        from sqlalchemy import select
-        from app.db.models.user import User
         result = await self.db_session.execute(
             select(User).where(User.telegram_id == user_id)
         )
@@ -65,7 +65,7 @@ class PaymentService:
             description=f"Psychosomatic PRO — {duration_days} дней",
             idempotence_key=idempotence_key,
             subscription_id=subscription.id if subscription else None,
-            metadata={
+            payment_metadata={
                 "user_id": str(user_id),
                 "plan": "pro",
                 "duration_days": str(duration_days),
@@ -79,7 +79,7 @@ class PaymentService:
             currency=currency,
             description=f"Psychosomatic PRO — {duration_days} дней",
             return_url=settings.YOOKASSA_RETURN_URL,
-            metadata={
+            payment_metadata={
                 "user_id": str(user_id),
                 "plan": "pro",
                 "duration_days": str(duration_days),
@@ -160,12 +160,12 @@ class PaymentService:
             return {"success": False, "error": "Currency mismatch"}
 
         # Проверяем metadata
-        metadata = yk_data.get("metadata", {})
-        if metadata.get("plan") != "pro":
-            logger.error(f"Plan mismatch: {metadata.get('plan')} != pro")
+        yk_metadata = yk_data.get("metadata", {})
+        if yk_metadata.get("plan") != "pro":
+            logger.error(f"Plan mismatch: {yk_metadata.get('plan')} != pro")
             return {"success": False, "error": "Plan mismatch"}
 
-        user_id = int(metadata.get("user_id", 0))
+        user_id = int(yk_metadata.get("user_id", 0))
         if user_id != payment.user_id:
             logger.error(f"User mismatch: {user_id} != {payment.user_id}")
             return {"success": False, "error": "User mismatch"}

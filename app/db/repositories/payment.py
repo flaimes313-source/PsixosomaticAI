@@ -28,7 +28,7 @@ class PaymentRepository:
         description: Optional[str] = None,
         idempotence_key: Optional[str] = None,
         subscription_id: Optional[int] = None,
-        metadata: Optional[dict] = None,
+        payment_metadata: Optional[dict] = None,
     ) -> Payment:
         """Создать новый платеж."""
         payment = Payment(
@@ -40,7 +40,7 @@ class PaymentRepository:
             description=description,
             idempotence_key=idempotence_key,
             subscription_id=subscription_id,
-            metadata=metadata,
+            payment_metadata=payment_metadata,
             status=PaymentStatus.PENDING,
         )
         self.session.add(payment)
