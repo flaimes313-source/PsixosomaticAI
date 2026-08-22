@@ -51,7 +51,7 @@ def get_analysis_buttons(analyses: list, user_tz) -> InlineKeyboardMarkup:
 
 
 @router.message(Command("history"))
-@router.message(F.text == "📋 История")
+@router.message(F.text == "📋 История анализов")  # ← ИСПРАВЛЕНО: точное совпадение
 async def show_history(message: types.Message, db_session: AsyncSession):
     """Показывает историю анализов пользователя."""
     telegram_id = message.from_user.id
@@ -76,9 +76,9 @@ async def show_history(message: types.Message, db_session: AsyncSession):
         except:
             user_tz = ZoneInfo("UTC")
         
-        # Получаем анализы
+        # Получаем анализы — ИСПРАВЛЕНО
         analysis_repo = AnalysisRepository(db_session)
-        analyses = await analysis_repo.get_by_user_id(user.id, limit=10)
+        analyses = await analysis_repo.get_user_analyses(user.id, limit=10)  # ← ИСПРАВЛЕНО
         
         if not analyses:
             await message.answer(
@@ -87,7 +87,7 @@ async def show_history(message: types.Message, db_session: AsyncSession):
             )
             return
         
-        total = await analysis_repo.get_count_by_user(user.id)
+        total = await analysis_repo.get_user_analyses_count(user.id)  # ← ИСПРАВЛЕНО
         
         history_text = (
             f"📋 Ваша история (последние {len(analyses)} из {total}):\n\n"
@@ -242,7 +242,7 @@ async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession
         
         # Получаем анализы
         analysis_repo = AnalysisRepository(db_session)
-        analyses = await analysis_repo.get_by_user_id(user.id, limit=10)
+        analyses = await analysis_repo.get_user_analyses(user.id, limit=10)  # ← ИСПРАВЛЕНО
         
         if not analyses:
             await callback.message.edit_text(
@@ -251,7 +251,7 @@ async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession
             )
             return
         
-        total = await analysis_repo.get_count_by_user(user.id)
+        total = await analysis_repo.get_user_analyses_count(user.id)  # ← ИСПРАВЛЕНО
         
         history_text = (
             f"📋 Ваша история (последние {len(analyses)} из {total}):\n\n"
@@ -296,7 +296,7 @@ async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession
         
         # Получаем анализы
         analysis_repo = AnalysisRepository(db_session)
-        analyses = await analysis_repo.get_by_user_id(user.id, limit=10)
+        analyses = await analysis_repo.get_user_analyses(user.id, limit=10)  # ← ИСПРАВЛЕНО
         
         if not analyses:
             await callback.message.edit_text(
@@ -305,7 +305,7 @@ async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession
             )
             return
         
-        total = await analysis_repo.get_count_by_user(user.id)
+        total = await analysis_repo.get_user_analyses_count(user.id)  # ← ИСПРАВЛЕНО
         
         history_text = (
             f"📋 Ваша история (последние {len(analyses)} из {total}):\n\n"
@@ -373,7 +373,7 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
         
         # Получаем все анализы пользователя
         analysis_repo = AnalysisRepository(db_session)
-        analyses = await analysis_repo.get_by_user_id(user.id, limit=1000)
+        analyses = await analysis_repo.get_user_analyses(user.id, limit=1000)  # ← ИСПРАВЛЕНО
         
         count = len(analyses)
         
