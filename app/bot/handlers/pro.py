@@ -237,13 +237,19 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
             return
     
     elif status == "pending":
-        await callback.message.edit_text(
-            "⏳ <b>Платёж в обработке...</b>\n\n"
-            "Ожидай подтверждения. Обычно это занимает несколько минут.\n\n"
-            "Нажми 'Проверить' через минуту.",
-            reply_markup=get_pro_payment_keyboard(None),
-            parse_mode="HTML",
-        )
+        # 🔥 ИСПРАВЛЕНО: не редактируем, если уже висит "pending"
+        current_text = callback.message.text
+        if "⏳" not in current_text:
+            await callback.message.edit_text(
+                "⏳ <b>Платёж в обработке...</b>\n\n"
+                "Ожидай подтверждения. Обычно это занимает несколько минут.\n\n"
+                "Нажми 'Проверить' через минуту.",
+                reply_markup=get_pro_payment_keyboard(None),
+                parse_mode="HTML",
+            )
+        else:
+            await callback.answer("⏳ Платёж всё ещё в обработке. Подожди ещё немного.")
+    
     else:
         await callback.message.edit_text(
             f"❌ <b>Статус платежа: {status}</b>\n\n"
