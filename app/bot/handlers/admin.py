@@ -2,7 +2,6 @@
 Админские команды (только для владельца бота).
 """
 import asyncio
-from html import escape
 from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -48,10 +47,9 @@ async def admin_panel(message: types.Message, state: FSMContext, db_session: Asy
     
     await state.clear()
     await message.answer(
-        "🛡️ <b>Админ-панель</b>\n\n"
+        "🛡️ Админ-панель\n\n"
         "Выбери действие:",
         reply_markup=get_admin_menu_keyboard(),
-        parse_mode="HTML",
     )
     logger.info(f"Admin opened panel: {message.from_user.id}")
 
@@ -64,10 +62,9 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
     
     if action == "back":
         await callback.message.edit_text(
-            "🛡️ <b>Админ-панель</b>\n\n"
+            "🛡️ Админ-панель\n\n"
             "Выбери действие:",
             reply_markup=get_admin_menu_keyboard(),
-            parse_mode="HTML",
         )
         return
     
@@ -76,10 +73,9 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
     
     elif action == "broadcast":
         await callback.message.edit_text(
-            "📢 <b>Создать рассылку</b>\n\n"
+            "📢 Создать рассылку\n\n"
             "Выбери получателей:",
             reply_markup=get_broadcast_recipients_keyboard(),
-            parse_mode="HTML",
         )
         await state.set_state(AdminStates.waiting_for_broadcast_recipients)
     
@@ -101,16 +97,15 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
         
         if not entries:
             await callback.message.edit_text(
-                "📋 <b>Белый список PRO</b>\n\n"
+                "📋 Белый список PRO\n\n"
                 "Список пуст.\n\n"
                 "Добавить: /add_pro <Telegram ID>\n"
                 "Удалить: /remove_pro <Telegram ID>",
                 reply_markup=get_admin_menu_keyboard(),
-                parse_mode="HTML",
             )
             return
         
-        text = "📋 <b>Белый список PRO</b>\n\n"
+        text = "📋 Белый список PRO\n\n"
         for entry in entries:
             user_result = await db_session.execute(
                 select(User).where(User.telegram_id == entry.user_id)
@@ -118,19 +113,17 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
             user = user_result.scalar_one_or_none()
             name = user.first_name if user else "Неизвестно"
             date = entry.created_at.strftime("%d.%m.%Y")
-            text += f"• <b>{entry.user_id}</b> — {escape(name)} (добавлен {date})\n"
+            text += f"• {entry.user_id} — {name} (добавлен {date})\n"
         
         await callback.message.edit_text(
             text,
             reply_markup=get_admin_menu_keyboard(),
-            parse_mode="HTML",
         )
     except Exception as e:
         logger.error(f"Error in show_whitelist: {e}")
         await callback.message.edit_text(
             "❌ Ошибка при загрузке белого списка.",
             reply_markup=get_admin_menu_keyboard(),
-            parse_mode="HTML",
         )
 
 
@@ -254,11 +247,10 @@ async def process_broadcast_recipients(message: types.Message, state: FSMContext
         return
     
     await message.answer(
-        "📢 <b>Введи текст сообщения для рассылки.</b>\n\n"
+        "📢 Введи текст сообщения для рассылки.\n\n"
         "Можно отправить картинку (приложи файлом к следующему сообщению).\n\n"
         "Чтобы отменить — нажми /cancel",
         reply_markup=get_broadcast_keyboard(),
-        parse_mode="HTML",
     )
     await state.set_state(AdminStates.waiting_for_broadcast_text)
 
@@ -274,12 +266,11 @@ async def process_broadcast_text(message: types.Message, state: FSMContext, db_s
     await state.update_data(broadcast_text=text)
     
     await message.answer(
-        "📢 <b>Проверь сообщение</b>\n\n"
-        f"Текст:\n{escape(text)}\n\n"
+        f"📢 Проверь сообщение\n\n"
+        f"Текст:\n{text}\n\n"
         "Хочешь добавить картинку? Приложи её к этому сообщению.\n"
         "Если картинка не нужна — нажми 'Отправить без картинки'.",
         reply_markup=get_broadcast_options_keyboard(),
-        parse_mode="HTML",
     )
     await state.set_state(AdminStates.waiting_for_broadcast_image)
 
@@ -301,11 +292,10 @@ async def process_broadcast_image(message: types.Message, state: FSMContext, db_
     
     await message.answer_photo(
         photo=file_id,
-        caption=f"📢 <b>Проверь сообщение</b>\n\n"
-                f"Текст:\n{escape(text)}\n\n"
+        caption=f"📢 Проверь сообщение\n\n"
+                f"Текст:\n{text}\n\n"
                 "Всё верно?",
         reply_markup=get_confirm_broadcast_keyboard(),
-        parse_mode="HTML",
     )
 
 
@@ -322,11 +312,10 @@ async def send_broadcast_without_image(message: types.Message, state: FSMContext
     await state.set_state(AdminStates.waiting_for_broadcast_confirm)
     
     await message.answer(
-        f"📢 <b>Проверь сообщение</b>\n\n"
-        f"Текст:\n{escape(text)}\n\n"
+        f"📢 Проверь сообщение\n\n"
+        f"Текст:\n{text}\n\n"
         "Всё верно?",
         reply_markup=get_confirm_broadcast_keyboard(),
-        parse_mode="HTML",
     )
 
 
@@ -399,13 +388,11 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
                     chat_id=user.telegram_id,
                     photo=image,
                     caption=text,
-                    parse_mode="HTML",
                 )
             else:
                 await callback.bot.send_message(
                     chat_id=user.telegram_id,
                     text=text,
-                    parse_mode="HTML",
                 )
             success_count += 1
         except Exception as e:
@@ -419,12 +406,11 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     await state.clear()
     
     await callback.message.edit_text(
-        f"✅ <b>Рассылка отправлена!</b>\n\n"
+        f"✅ Рассылка отправлена!\n\n"
         f"Доставлено: {success_count}\n"
         f"Ошибок: {fail_count}\n"
         f"Всего: {len(users)}",
         reply_markup=get_admin_menu_keyboard(),
-        parse_mode="HTML",
     )
 
 
@@ -433,10 +419,9 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
     await callback.answer("Рассылка отменена")
     await state.clear()
     await callback.message.edit_text(
-        "🛡️ <b>Админ-панель</b>\n\n"
+        "🛡️ Админ-панель\n\n"
         "Выбери действие:",
         reply_markup=get_admin_menu_keyboard(),
-        parse_mode="HTML",
     )
 
 
@@ -453,18 +438,17 @@ async def show_support_requests(callback: CallbackQuery, db_session: AsyncSessio
         
         if not requests:
             await callback.message.edit_text(
-                "📋 <b>Обращения в поддержку</b>\n\n"
+                "📋 Обращения в поддержку\n\n"
                 "Новых обращений нет.",
                 reply_markup=get_admin_menu_keyboard(),
-                parse_mode="HTML",
             )
             return
         
-        text = "📋 <b>Обращения в поддержку</b>\n\n"
+        text = "📋 Обращения в поддержку\n\n"
         for req in requests[:10]:
             date = req.created_at.strftime("%d.%m.%Y %H:%M")
-            text += f"<b>#{req.id}</b> от {req.user_id} ({date})\n"
-            text += f"📝 {escape(req.message[:100])}...\n"
+            text += f"#{req.id} от {req.user_id} ({date})\n"
+            text += f"📝 {req.message[:100]}...\n"
             text += f"➡️ /answer {req.id} <текст>\n\n"
         
         text += "Используйте команду /answer <ID> <текст> для ответа."
@@ -472,14 +456,12 @@ async def show_support_requests(callback: CallbackQuery, db_session: AsyncSessio
         await callback.message.edit_text(
             text,
             reply_markup=get_admin_menu_keyboard(),
-            parse_mode="HTML",
         )
     except Exception as e:
         logger.error(f"Error in show_support_requests: {e}")
         await callback.message.edit_text(
             "❌ Ошибка при загрузке обращений.",
             reply_markup=get_admin_menu_keyboard(),
-            parse_mode="HTML",
         )
 
 
@@ -516,11 +498,10 @@ async def answer_support(message: types.Message, db_session: AsyncSession):
 
         await message.bot.send_message(
             chat_id=request.user_id,
-            text=f"📩 <b>Ответ на обращение #{request.id}</b>\n\n"
-                 f"{escape(answer_text)}\n\n"
+            text=f"📩 Ответ на обращение #{request.id}\n\n"
+                 f"{answer_text}\n\n"
                  "━━━━━━━━━━━━━━━━━━━\n"
                  "💬 Если у вас есть ещё вопросы — напишите в поддержку.",
-            parse_mode="HTML",
         )
 
         request.is_answered = True
@@ -547,22 +528,20 @@ async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
         )).scalar()
         
         text = (
-            "📊 <b>Статистика бота</b>\n\n"
-            f"👤 Пользователей: <b>{users_count or 0}</b>\n"
-            f"🧠 Анализов: <b>{analyses_count or 0}</b>\n"
-            f"📔 Записей в дневнике: <b>{diary_count or 0}</b>\n"
-            f"⭐ PRO-пользователей: <b>{pro_count or 0}</b>"
+            f"📊 Статистика бота\n\n"
+            f"👤 Пользователей: {users_count or 0}\n"
+            f"🧠 Анализов: {analyses_count or 0}\n"
+            f"📔 Записей в дневнике: {diary_count or 0}\n"
+            f"⭐ PRO-пользователей: {pro_count or 0}"
         )
         
         await callback.message.edit_text(
             text,
             reply_markup=get_admin_menu_keyboard(),
-            parse_mode="HTML",
         )
     except Exception as e:
         logger.error(f"Error in show_stats: {e}")
         await callback.message.edit_text(
             "❌ Ошибка при загрузке статистики.",
             reply_markup=get_admin_menu_keyboard(),
-            parse_mode="HTML",
         )
