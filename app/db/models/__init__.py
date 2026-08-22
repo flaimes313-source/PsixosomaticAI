@@ -8,3 +8,4 @@ from .diary import DiaryEntry
 from .reminder import ReminderSettings
 from .subscription import Subscription, PlanType, SubscriptionStatus
 from .usage import UserUsage
+from .payment import Payment, PaymentStatus

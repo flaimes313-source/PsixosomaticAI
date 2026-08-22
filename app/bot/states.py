@@ -62,3 +62,12 @@ class ReminderStates(StatesGroup):
     waiting_for_time = State()         # Ожидание выбора времени
     waiting_for_custom_time = State()  # Ожидание ввода своего времени
     waiting_for_days = State()         # Ожидание выбора дней недели
+
+
+# ==================== НОВОЕ: СОСТОЯНИЯ ДЛЯ PRO ====================
+
+class ProStates(StatesGroup):
+    """
+    Состояния для раздела PRO и оплаты.
+    """
+    waiting_for_payment = State()      # Ожидание подтверждения оплаты

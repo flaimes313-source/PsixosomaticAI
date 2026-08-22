@@ -14,13 +14,15 @@ from app.bot.middlewares import DBSessionMiddleware
 from app.bot.handlers import (
     start, menu, help, privacy, symptom, cancel, history, stress,
     settings as settings_handler, diary,
-    dynamics_handler, reminders_handler, pro_handler  # ← ДОБАВЛЕН pro_handler
+    dynamics_handler, reminders_handler, pro_handler
 )
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
 from app.db.database import check_db_connection, engine, async_session_maker
 from app.services.reminder_service import ReminderService
 from app.services.subscription_service import SubscriptionService
+from app.services.payment_reconciliation_service import PaymentReconciliationService
+from app.webhooks.yookassa import router as yookassa_webhook_router
 from app.db.repositories.subscription import SubscriptionRepository
 
 
@@ -85,7 +87,7 @@ async def main() -> None:
     dp.include_router(diary.router)            # Сценарий "Дневник"
     dp.include_router(dynamics_handler.router) # Сценарий "Моя динамика"
     dp.include_router(reminders_handler.router)# Сценарий "Напоминания"
-    dp.include_router(pro_handler.router)      # ← НОВЫЙ: Сценарий "PRO"
+    dp.include_router(pro_handler.router)      # Сценарий "PRO"
     dp.include_router(cancel.router)           # Команда /cancel
     dp.include_router(history.router)          # История анализов
     dp.include_router(errors_router)           # Глобальный обработчик ошибок
@@ -102,6 +104,18 @@ async def main() -> None:
     reminder_service = ReminderService(async_session_maker, bot)
     await reminder_service.start()
     logger.info("ReminderService started")
+    
+    # ==================== НОВОЕ: ЗАПУСК РЕКОНСИЛЯЦИИ ПЛАТЕЖЕЙ ====================
+    logger.info("Starting PaymentReconciliationService...")
+    reconciliation_service = PaymentReconciliationService(async_session_maker)
+    await reconciliation_service.start()
+    logger.info("PaymentReconciliationService started")
+    # ========================================================================
+
+    # ==================== НОВОЕ: ПОДКЛЮЧЕНИЕ WEBHOOK ====================
+    fastapi_app.include_router(yookassa_webhook_router)
+    logger.info("YooKassa webhook router registered")
+    # ========================================================================
     
     # Запускаем FastAPI сервер в фоне
     logger.info(f"Starting FastAPI server on {config_settings.API_HOST}:{config_settings.API_PORT}")
@@ -123,6 +137,7 @@ async def main() -> None:
         logger.info("Shutting down...")
         fastapi_task.cancel()
         await reminder_service.stop()
+        await reconciliation_service.stop()
         await bot.session.close()
         await engine.dispose()
         logger.info("Application stopped")
