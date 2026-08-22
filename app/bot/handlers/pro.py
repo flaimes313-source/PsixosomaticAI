@@ -17,6 +17,7 @@ from app.bot.states import ProStates
 from app.services.access_service import AccessService
 from app.services.subscription_service import SubscriptionService
 from app.services.payment_service import PaymentService
+from app.services.yookassa_service import YooKassaService
 from app.utils.logging import logger
 from app.config import settings
 
@@ -151,6 +152,8 @@ async def start_payment(callback: CallbackQuery, state: FSMContext, db_session: 
     )
 
 
+# ==================== ИСПРАВЛЕННАЯ ФУНКЦИЯ ====================
+
 @router.callback_query(F.data == "pro_check_payment")
 async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Проверяет статус платежа."""
@@ -168,9 +171,10 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         return
     
     payment_service = PaymentService(db_session)
-    payment_info = await payment_service.get_payment_info(payment_id, callback.from_user.id)
     
-    if not payment_info:
+    # Получаем платеж из БД
+    payment = await payment_service.payment_repo.get_by_id(payment_id, callback.from_user.id)
+    if not payment:
         await callback.message.edit_text(
             "❌ Платёж не найден.",
             reply_markup=get_pro_features_keyboard(),
@@ -178,17 +182,60 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
         return
     
-    status = payment_info.get("status")
-    
-    if status == "succeeded":
+    # Если уже SUCCEEDED — просто показываем успех
+    if payment.status == "SUCCEEDED":
         await state.clear()
         await callback.message.edit_text(
-            "🎉 <b>Оплата прошла успешно!</b>\n\n"
-            "⭐ PRO активирован!\n\n"
-            f"Доступ до: <b>{payment_info.get('expires_at').strftime('%d.%m.%Y') if payment_info.get('expires_at') else 'бессрочно'}</b>",
+            "🎉 <b>Оплата уже подтверждена!</b>\n\n"
+            "⭐ PRO активирован!",
             reply_markup=get_pro_success_keyboard(),
             parse_mode="HTML",
         )
+        return
+    
+    # Если нет provider_payment_id — ошибка
+    if not payment.provider_payment_id:
+        await callback.message.edit_text(
+            "❌ Нет ID платежа в ЮKassa.",
+            reply_markup=get_pro_features_keyboard(),
+            parse_mode="HTML",
+        )
+        return
+    
+    # Проверяем статус в ЮKassa
+    yookassa = YooKassaService()
+    status = await yookassa.check_payment_status(payment.provider_payment_id)
+    
+    logger.info(f"🔄 Check payment: provider_payment_id={payment.provider_payment_id}, status={status}")
+    
+    if status == "succeeded":
+        # 🔥 ВЫЗЫВАЕМ ОБРАБОТЧИК УСПЕШНОГО ПЛАТЕЖА
+        result = await payment_service.process_successful_webhook(
+            payment.provider_payment_id,
+            {}
+        )
+        
+        if result.get("success"):
+            await state.clear()
+            expires_at = result.get("expires_at")
+            expires_str = expires_at.strftime('%d.%m.%Y') if expires_at else "бессрочно"
+            await callback.message.edit_text(
+                f"🎉 <b>Оплата прошла успешно!</b>\n\n"
+                f"⭐ PRO активирован!\n\n"
+                f"Доступ до: <b>{expires_str}</b>",
+                reply_markup=get_pro_success_keyboard(),
+                parse_mode="HTML",
+            )
+            logger.info(f"✅ PRO activated for user {callback.from_user.id} via check_payment")
+            return
+        else:
+            await callback.message.edit_text(
+                f"⚠️ Не удалось активировать PRO. Ошибка: {result.get('error', 'Неизвестная ошибка')}",
+                reply_markup=get_pro_features_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+    
     elif status == "pending":
         await callback.message.edit_text(
             "⏳ <b>Платёж в обработке...</b>\n\n"
@@ -205,6 +252,8 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
             parse_mode="HTML",
         )
 
+
+# ==================== ОСТАЛЬНЫЕ ФУНКЦИИ ====================
 
 @router.callback_query(F.data == "pro_back")
 async def back_to_pro_menu(callback: CallbackQuery, db_session: AsyncSession):
