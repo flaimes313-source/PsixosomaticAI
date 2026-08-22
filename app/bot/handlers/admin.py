@@ -371,6 +371,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     success_count = 0
     fail_count = 0
     
+    # Сохраняем рассылку в БД
     broadcast = Broadcast(
         title="Рассылка",
         message=text,
@@ -381,6 +382,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     db_session.add(broadcast)
     await db_session.commit()
     
+    # Отправляем каждому пользователю
     for user in users:
         try:
             if image:
@@ -388,11 +390,13 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
                     chat_id=user.telegram_id,
                     photo=image,
                     caption=text,
+                    parse_mode="HTML",
                 )
             else:
                 await callback.bot.send_message(
                     chat_id=user.telegram_id,
                     text=text,
+                    parse_mode="HTML",
                 )
             success_count += 1
         except Exception as e:
@@ -400,6 +404,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
             fail_count += 1
         await asyncio.sleep(0.05)
     
+    # Обновляем статус рассылки
     broadcast.is_sent = True
     broadcast.sent_at = datetime.now()
     await db_session.commit()
@@ -502,6 +507,7 @@ async def answer_support(message: types.Message, db_session: AsyncSession):
                  f"{answer_text}\n\n"
                  "━━━━━━━━━━━━━━━━━━━\n"
                  "💬 Если у вас есть ещё вопросы — напишите в поддержку.",
+            parse_mode="HTML",
         )
 
         request.is_answered = True
