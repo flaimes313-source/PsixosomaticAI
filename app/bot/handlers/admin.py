@@ -5,7 +5,7 @@ import asyncio
 from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, Message
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 from datetime import datetime
@@ -14,9 +14,9 @@ from app.db.models.whitelist import ProWhitelist
 from app.db.models.broadcast import Broadcast
 from app.db.models.support import SupportRequest
 from app.db.models.user import User
-from app.db.models.analysis import Analysis  # ← ДОБАВЛЕНО
-from app.db.models.diary import DiaryEntry  # ← ДОБАВЛЕНО
-from app.db.models.subscription import Subscription, PlanType  # ← ДОБАВЛЕНО
+from app.db.models.analysis import Analysis
+from app.db.models.diary import DiaryEntry
+from app.db.models.subscription import Subscription, PlanType
 from app.bot.states import AdminStates
 from app.bot.keyboards.admin import (
     get_admin_menu_keyboard,
@@ -30,19 +30,17 @@ from app.utils.logging import logger
 
 router = Router()
 
-ADMIN_ID = 462035571  # ВАШ TELEGRAM ID
+ADMIN_ID = 462035571
 
 
 def is_admin(user_id: int) -> bool:
-    """Проверяет, является ли пользователь админом."""
     return user_id == ADMIN_ID
 
 
-# ==================== ГЛАВНОЕ МЕНЮ АДМИНА ====================
+# ==================== ГЛАВНОЕ МЕНЮ ====================
 
 @router.message(Command("admin"))
 async def admin_panel(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Открывает админ-панель (только для админа)."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         return
@@ -59,7 +57,6 @@ async def admin_panel(message: types.Message, state: FSMContext, db_session: Asy
 
 @router.callback_query(F.data.startswith("admin_"))
 async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Обработка действий в админ-панели."""
     await callback.answer()
     
     action = callback.data.replace("admin_", "")
@@ -95,7 +92,6 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
 # ==================== БЕЛЫЙ СПИСОК ====================
 
 async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
-    """Показывает белый список PRO."""
     try:
         result = await db_session.execute(
             select(ProWhitelist).order_by(ProWhitelist.created_at.desc())
@@ -123,8 +119,6 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
             date = entry.created_at.strftime("%d.%m.%Y")
             text += f"• <b>{entry.user_id}</b> — {name} (добавлен {date})\n"
         
-        text += "\n\nДобавить: /add_pro <ID>\nУдалить: /remove_pro <ID>"
-        
         await callback.message.edit_text(
             text,
             reply_markup=get_admin_menu_keyboard(),
@@ -141,7 +135,6 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
 
 @router.message(Command("add_pro"))
 async def add_pro_command(message: types.Message, db_session: AsyncSession):
-    """Добавляет пользователя в белый список PRO."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         return
@@ -184,7 +177,7 @@ async def add_pro_command(message: types.Message, db_session: AsyncSession):
         db_session.add(whitelist_entry)
         await db_session.commit()
 
-        logger.info(f"Admin {message.from_user.id} added user {target_user_id} to PRO whitelist")
+        logger.info(f"Admin added user {target_user_id} to PRO whitelist")
         await message.answer(f"✅ Пользователь {target_user_id} добавлен в белый список PRO!")
     except Exception as e:
         logger.error(f"Error in add_pro: {e}")
@@ -193,7 +186,6 @@ async def add_pro_command(message: types.Message, db_session: AsyncSession):
 
 @router.message(Command("remove_pro"))
 async def remove_pro_command(message: types.Message, db_session: AsyncSession):
-    """Удаляет пользователя из белого списка PRO."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         return
@@ -225,7 +217,7 @@ async def remove_pro_command(message: types.Message, db_session: AsyncSession):
         await db_session.delete(entry)
         await db_session.commit()
 
-        logger.info(f"Admin {message.from_user.id} removed user {target_user_id} from PRO whitelist")
+        logger.info(f"Admin removed user {target_user_id} from PRO whitelist")
         await message.answer(f"✅ Пользователь {target_user_id} удалён из белого списка PRO.")
     except Exception as e:
         logger.error(f"Error in remove_pro: {e}")
@@ -236,7 +228,6 @@ async def remove_pro_command(message: types.Message, db_session: AsyncSession):
 
 @router.message(AdminStates.waiting_for_broadcast_recipients, F.text)
 async def process_broadcast_recipients(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Выбор получателей рассылки."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         await state.clear()
@@ -273,7 +264,6 @@ async def process_broadcast_recipients(message: types.Message, state: FSMContext
 
 @router.message(AdminStates.waiting_for_broadcast_text, F.text)
 async def process_broadcast_text(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обрабатывает текст для рассылки."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         await state.clear()
@@ -295,7 +285,6 @@ async def process_broadcast_text(message: types.Message, state: FSMContext, db_s
 
 @router.message(AdminStates.waiting_for_broadcast_image, F.photo)
 async def process_broadcast_image(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обрабатывает картинку для рассылки."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         await state.clear()
@@ -321,7 +310,6 @@ async def process_broadcast_image(message: types.Message, state: FSMContext, db_
 
 @router.message(AdminStates.waiting_for_broadcast_image, F.text == "📨 Отправить без картинки")
 async def send_broadcast_without_image(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Отправляет рассылку без картинки."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         await state.clear()
@@ -343,7 +331,6 @@ async def send_broadcast_without_image(message: types.Message, state: FSMContext
 
 @router.callback_query(F.data == "broadcast_confirm")
 async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Подтверждение отправки рассылки."""
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Доступ запрещён.")
         return
@@ -442,7 +429,6 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
 
 @router.callback_query(F.data == "broadcast_cancel")
 async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
-    """Отмена рассылки."""
     await callback.answer("Рассылка отменена")
     await state.clear()
     await callback.message.edit_text(
@@ -453,10 +439,9 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== ПОДДЕРЖКА (для админа) ====================
+# ==================== ПОДДЕРЖКА ====================
 
 async def show_support_requests(callback: CallbackQuery, db_session: AsyncSession):
-    """Показывает обращения в поддержку."""
     try:
         result = await db_session.execute(
             select(SupportRequest)
@@ -499,7 +484,6 @@ async def show_support_requests(callback: CallbackQuery, db_session: AsyncSessio
 
 @router.message(Command("answer"))
 async def answer_support(message: types.Message, db_session: AsyncSession):
-    """Отвечает на обращение в поддержку."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         return
@@ -553,12 +537,7 @@ async def answer_support(message: types.Message, db_session: AsyncSession):
 # ==================== СТАТИСТИКА ====================
 
 async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
-    """Показывает статистику бота."""
     try:
-        from app.db.models.analysis import Analysis
-        from app.db.models.diary import DiaryEntry
-        from app.db.models.subscription import Subscription, PlanType
-        
         users_count = (await db_session.execute(select(func.count()).select_from(User))).scalar()
         analyses_count = (await db_session.execute(select(func.count()).select_from(Analysis))).scalar()
         diary_count = (await db_session.execute(select(func.count()).select_from(DiaryEntry))).scalar()

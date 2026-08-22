@@ -19,13 +19,11 @@ from app.utils.logging import logger
 
 router = Router()
 
-# ID админа для оповещений
 ADMIN_ID = 462035571
 
 
 @router.message(F.text == "❓ Поддержка")
 async def show_support_menu(message: types.Message, state: FSMContext):
-    """Показывает меню поддержки."""
     await state.clear()
     
     await message.answer(
@@ -41,7 +39,6 @@ async def show_support_menu(message: types.Message, state: FSMContext):
 
 @router.message(SupportStates.waiting_for_question, F.text)
 async def process_support_question(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обрабатывает вопрос пользователя."""
     question = message.text.strip()
     
     if question.startswith('/'):
@@ -54,7 +51,7 @@ async def process_support_question(message: types.Message, state: FSMContext, db
         )
         return
     
-    # Сохраняем обращение в БД
+    # Сохраняем обращение
     support_request = SupportRequest(
         user_id=message.from_user.id,
         message=question,
@@ -63,10 +60,8 @@ async def process_support_question(message: types.Message, state: FSMContext, db
     db_session.add(support_request)
     await db_session.commit()
     
-    # Сохраняем ID обращения в FSM
     await state.update_data(request_id=support_request.id)
     
-    # Ответ пользователю
     await message.answer(
         "✅ <b>Ваше обращение отправлено!</b>\n\n"
         "Мы ответим вам в ближайшее время.\n"
@@ -81,10 +76,10 @@ async def process_support_question(message: types.Message, state: FSMContext, db
     
     # ==================== ОПОВЕЩЕНИЕ АДМИНА ====================
     try:
-        user = await db_session.execute(
+        user_result = await db_session.execute(
             select(User).where(User.telegram_id == message.from_user.id)
         )
-        user = user.scalar_one_or_none()
+        user = user_result.scalar_one_or_none()
         user_name = user.first_name if user else "Неизвестно"
         
         await message.bot.send_message(
@@ -101,13 +96,11 @@ async def process_support_question(message: types.Message, state: FSMContext, db
         )
         logger.info(f"Admin notified about support request #{support_request.id}")
     except Exception as e:
-        logger.error(f"Failed to notify admin about support request: {e}")
-    # ===========================================================
+        logger.error(f"Failed to notify admin: {e}")
 
 
 @router.message(SupportStates.waiting_for_question)
 async def process_support_invalid(message: types.Message, state: FSMContext):
-    """Невалидный ввод в поддержке."""
     await message.answer(
         "Пожалуйста, напиши свой вопрос текстом.",
         reply_markup=get_support_cancel_keyboard(),
@@ -116,7 +109,6 @@ async def process_support_invalid(message: types.Message, state: FSMContext):
 
 @router.callback_query(F.data == "support_cancel")
 async def cancel_support(callback: CallbackQuery, state: FSMContext):
-    """Отмена обращения в поддержку."""
     await callback.answer("Отменяем...")
     await state.clear()
     
