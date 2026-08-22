@@ -44,15 +44,16 @@ from .dynamics import (
     get_dynamics_period_keyboard,
     get_dynamics_actions_keyboard,
 )
-from .reminders import (  # ← ПРАВИЛЬНО
+from .reminders import (
     get_reminders_menu_keyboard,
     get_time_preset_keyboard,
     get_days_keyboard,
     get_cancel_keyboard as get_reminder_cancel_keyboard,
 )
-from .pro import (
+from .pro import (  # ← ИСПРАВЛЕНО
     get_pro_menu_keyboard,
     get_pro_features_keyboard,
-    get_pro_upgrade_keyboard,
+    get_pro_payment_keyboard,
+    get_pro_success_keyboard,
     get_pro_locked_keyboard,
 )
