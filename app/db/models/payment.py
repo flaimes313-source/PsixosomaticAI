@@ -11,10 +11,10 @@ from app.db.base import Base
 
 class PaymentStatus(str, enum.Enum):
     """Статусы платежа."""
-    PENDING = "pending"
-    SUCCEEDED = "succeeded"
-    CANCELLED = "cancelled"
-    FAILED = "failed"
+    PENDING = "PENDING"
+    SUCCEEDED = "SUCCEEDED"
+    CANCELLED = "CANCELLED"
+    FAILED = "FAILED"
 
 
 class Payment(Base):
@@ -31,14 +31,12 @@ class Payment(Base):
     provider = Column(String(50), default="yookassa", nullable=False)
     provider_payment_id = Column(String(100), nullable=True, index=True)  # ID от ЮKassa
     
-    # ==================== ИСПРАВЛЕНО ====================
-    # Добавлен параметр validate_strings=True для корректной работы с Enum
+    # Статус
     status = Column(
         SQLEnum(PaymentStatus, validate_strings=True),
         default=PaymentStatus.PENDING,
         nullable=False
     )
-    # ====================================================
     
     # Сумма и валюта
     amount = Column(Numeric(10, 2), nullable=False)
