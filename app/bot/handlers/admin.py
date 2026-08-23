@@ -237,6 +237,11 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     
     logger.info(f"📢 FINAL: text_length={len(text)}, image={image}, recipients={recipients_type}")
     
+    # ==================== ДОБАВЛЯЕМ ЗАГОЛОВОК ====================
+    header = "📢 <b>Сообщение от администратора</b>\n\n"
+    full_text = header + text
+    # ============================================================
+    
     # Получаем пользователей
     if recipients_type == "all":
         result = await db_session.execute(select(User))
@@ -259,7 +264,6 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
         users = result.scalars().all()
         logger.info(f"📢 Free users: {len(users)}")
     elif recipients_type == "ids":
-        # Для "По ID" нужно будет ввести ID вручную, пока пропускаем
         await callback.message.edit_text(
             "❌ Функция 'По ID' пока не реализована. Выбери другую группу.",
             reply_markup=get_broadcast_recipients_keyboard(),
@@ -279,7 +283,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     # Сохраняем рассылку в БД
     broadcast = Broadcast(
         title="Рассылка",
-        message=text,
+        message=full_text,
         image_url=image,
         created_by=callback.from_user.id,
         recipients_count=len(users),
@@ -294,13 +298,13 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
                 await callback.bot.send_photo(
                     chat_id=user.telegram_id,
                     photo=image,
-                    caption=text,
+                    caption=full_text,
                     parse_mode="HTML",
                 )
             else:
                 await callback.bot.send_message(
                     chat_id=user.telegram_id,
-                    text=text,
+                    text=full_text,
                     parse_mode="HTML",
                 )
             success_count += 1
