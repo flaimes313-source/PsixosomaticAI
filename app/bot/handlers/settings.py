@@ -39,33 +39,6 @@ async def show_settings(message: types.Message, state: FSMContext):
     logger.info(f"User opened settings: {message.from_user.id}")
 
 
-async def show_settings_edit(message: types.Message, state: FSMContext, callback: CallbackQuery = None):
-    """
-    Показывает настройки с редактированием текущего сообщения (из профиля).
-    """
-    await state.clear()
-    
-    text = (
-        "⚙️ <b>Настройки</b>\n\n"
-        "Здесь вы можете управлять своими данными.\n\n"
-        "Доступные действия:"
-    )
-    
-    if callback:
-        await callback.message.edit_text(
-            text,
-            reply_markup=get_settings_keyboard(back_to="profile"),
-            parse_mode="HTML",
-        )
-    else:
-        await message.answer(
-            text,
-            reply_markup=get_settings_keyboard(back_to="profile"),
-            parse_mode="HTML",
-        )
-    logger.info(f"User opened settings from profile: {message.from_user.id}")
-
-
 # ==================== ОБРАБОТЧИКИ ====================
 
 @router.callback_query(F.data == "delete_all_data")
@@ -90,11 +63,11 @@ async def confirm_delete_data(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "cancel_delete")
-async def cancel_delete_data(callback: CallbackQuery):
+async def cancel_delete_data(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Отмена удаления данных."""
     await callback.answer("Удаление отменено")
     
-    # Определяем, откуда пришли (из меню или из профиля)
+    # Проверяем, откуда пришли (из профиля или из меню)
     # По умолчанию возвращаем в меню
     await callback.message.edit_text(
         "⚙️ <b>Настройки</b>\n\n"

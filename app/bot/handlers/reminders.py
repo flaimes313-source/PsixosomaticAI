@@ -50,6 +50,7 @@ async def show_reminders_menu(message: types.Message, state: FSMContext, db_sess
         reply_markup=get_reminders_menu_keyboard(settings.enabled),
         parse_mode="HTML",
     )
+    logger.info(f"User opened reminders from menu: {telegram_id}")
 
 
 async def show_reminders_edit(message: types.Message, state: FSMContext, db_session: AsyncSession, callback: CallbackQuery = None):
@@ -328,6 +329,7 @@ async def disable_reminders(callback: CallbackQuery, db_session: AsyncSession):
 
 @router.callback_query(F.data == "reminders_back_to_menu")
 async def back_to_reminders_menu(callback: CallbackQuery, db_session: AsyncSession):
+    """Возврат в меню напоминаний."""
     await callback.answer()
     
     telegram_id = callback.from_user.id
@@ -355,6 +357,7 @@ async def back_to_reminders_menu(callback: CallbackQuery, db_session: AsyncSessi
 
 @router.callback_query(F.data == "reminders_close")
 async def close_reminders(callback: CallbackQuery, state: FSMContext):
+    """Закрывает раздел напоминаний и возвращает в главное меню."""
     await callback.answer()
     await state.clear()
     

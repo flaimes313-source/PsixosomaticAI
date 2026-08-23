@@ -343,7 +343,7 @@ async def back_to_pro_menu(callback: CallbackQuery, db_session: AsyncSession):
         "• 📔 Неограниченный дневник\n"
         "• 🧠 Больше AI-анализов (безлимит)\n"
         "• 📈 Расширенные отчёты\n"
-        "• 🔔 Расширенные настройки напоминаний\n\n"
+        "• 🔔 Расширенные настройки напоминаций\n\n"
         f"💳 Стоимость: <b>{settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>"
     )
     
@@ -406,7 +406,7 @@ async def back_to_profile_from_pro(callback: CallbackQuery, state: FSMContext, d
     await callback.answer()
     await state.clear()
     
-    from app.bot.handlers.profile import show_profile_message
+    from app.bot.handlers.profile import show_profile
     
     await callback.message.delete()
-    await show_profile_message(callback, state, db_session)
+    await show_profile(callback.message, state, db_session)
