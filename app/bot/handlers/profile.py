@@ -23,12 +23,23 @@ from app.utils.logging import logger
 router = Router()
 
 
-@router.message(F.text == "👤 Профиль")
-async def show_profile(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Показывает профиль пользователя."""
+async def show_profile_message(message_or_callback, state: FSMContext, db_session: AsyncSession):
+    """
+    Универсальная функция показа профиля.
+    Работает как с Message, так и с CallbackQuery.
+    """
     await state.clear()
     
-    user_id = message.from_user.id
+    # Определяем user_id и способ отправки
+    if hasattr(message_or_callback, 'from_user'):
+        user_id = message_or_callback.from_user.id
+        is_callback = False
+        message = message_or_callback
+    else:
+        user_id = message_or_callback.from_user.id
+        is_callback = True
+        callback = message_or_callback
+        message = callback.message
     
     # Получаем данные пользователя
     result = await db_session.execute(
@@ -41,7 +52,7 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
         from app.db.repositories.user import UserRepository
         user_repo = UserRepository(db_session)
         user = await user_repo.get_or_create(
-            telegram_id=message.from_user.id,
+            telegram_id=user_id,
             username=message.from_user.username,
             first_name=message.from_user.first_name,
             last_name=message.from_user.last_name,
@@ -102,12 +113,27 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
         "Выбери раздел для управления:"
     )
     
-    await message.answer(
-        text,
-        reply_markup=get_profile_menu_keyboard(),
-        parse_mode="HTML",
-    )
+    # Отправляем или редактируем сообщение
+    if is_callback:
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_profile_menu_keyboard(),
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(
+            text,
+            reply_markup=get_profile_menu_keyboard(),
+            parse_mode="HTML",
+        )
+    
     logger.info(f"User opened profile: {user_id}")
+
+
+@router.message(F.text == "👤 Профиль")
+async def show_profile(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Показывает профиль пользователя (обработчик кнопки)."""
+    await show_profile_message(message, state, db_session)
 
 
 @router.callback_query(F.data.startswith("profile_"))
@@ -120,9 +146,8 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     # ==================== НАВИГАЦИЯ ====================
     
     if action == "back_to_profile":
-        # Возврат в профиль (из всех вложенных разделов)
-        await callback.message.delete()
-        await show_profile(callback.message, state, db_session)
+        # Возврат в профиль — перерисовываем текущее сообщение
+        await show_profile_message(callback, state, db_session)
         return
     
     if action == "back_to_menu":
@@ -137,25 +162,22 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     # ==================== РАЗДЕЛЫ ====================
     
     elif action == "settings":
-        # Настройки → показываем и передаём клавиатуру с возвратом в профиль
-        await callback.message.delete()
-        from app.bot.handlers.settings import show_settings
-        # Передаём кастомную клавиатуру для возврата в профиль
-        await show_settings(callback.message, state)
+        # Настройки — редактируем текущее сообщение
+        from app.bot.handlers.settings import show_settings_edit
+        await show_settings_edit(callback.message, state, callback)
     
     elif action == "reminders":
-        # Напоминания → показываем и передаём клавиатуру с возвратом в профиль
-        await callback.message.delete()
-        from app.bot.handlers.reminders import show_reminders_menu
-        await show_reminders_menu(callback.message, state, db_session)
+        # Напоминания — редактируем текущее сообщение
+        from app.bot.handlers.reminders import show_reminders_edit
+        await show_reminders_edit(callback.message, state, db_session, callback)
     
     elif action == "subscription":
-        # Подписка (PRO) → показываем и передаём клавиатуру с возвратом в профиль
-        await callback.message.delete()
-        from app.bot.handlers.pro import show_pro_menu
-        await show_pro_menu(callback.message, state, db_session)
+        # Подписка (PRO) — редактируем текущее сообщение
+        from app.bot.handlers.pro import show_pro_edit
+        await show_pro_edit(callback.message, state, db_session, callback)
     
     elif action == "privacy":
+        # Конфиденциальность — редактируем текущее сообщение
         privacy_text = (
             "🔐 <b>Конфиденциальность</b>\n\n"
             "Мы сохраняем технические данные,\n"
@@ -176,6 +198,7 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         )
     
     elif action == "help":
+        # Помощь — редактируем текущее сообщение
         help_text = (
             "❓ <b>Помощь</b>\n\n"
             "🧠 Разобрать симптом\n"

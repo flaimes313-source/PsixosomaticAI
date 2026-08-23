@@ -26,7 +26,7 @@ router = Router()
 
 @router.message(F.text == "🔔 Напоминания")
 async def show_reminders_menu(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Показывает меню напоминаний."""
+    """Показывает меню напоминаний (из главного меню)."""
     await state.clear()
     
     telegram_id = message.from_user.id
@@ -50,6 +50,44 @@ async def show_reminders_menu(message: types.Message, state: FSMContext, db_sess
         reply_markup=get_reminders_menu_keyboard(settings.enabled),
         parse_mode="HTML",
     )
+
+
+async def show_reminders_edit(message: types.Message, state: FSMContext, db_session: AsyncSession, callback: CallbackQuery = None):
+    """
+    Показывает напоминания с редактированием текущего сообщения (из профиля).
+    """
+    await state.clear()
+    
+    telegram_id = message.from_user.id
+    reminder_repo = ReminderRepository(db_session)
+    settings = await reminder_repo.get_or_create(telegram_id)
+    
+    status = "✅ включены" if settings.enabled else "❌ выключены"
+    time_str = settings.reminder_time.strftime("%H:%M") if settings.reminder_time else "не задано"
+    days_str = _format_days(settings.days_of_week) if settings.days_of_week else "каждый день"
+    
+    text = (
+        f"🔔 <b>Напоминания</b>\n\n"
+        f"Статус: {status}\n"
+        f"Время: {time_str}\n"
+        f"Дни: {days_str}\n\n"
+        "Выбери действие:"
+    )
+    
+    if callback:
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_reminders_menu_keyboard(settings.enabled),
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(
+            text,
+            reply_markup=get_reminders_menu_keyboard(settings.enabled),
+            parse_mode="HTML",
+        )
+    
+    logger.info(f"User opened reminders from profile: {telegram_id}")
 
 
 @router.callback_query(F.data == "reminders_enable")
@@ -325,6 +363,20 @@ async def close_reminders(callback: CallbackQuery, state: FSMContext):
         "Главное меню:",
         reply_markup=get_main_menu_keyboard(),
     )
+
+
+# ==================== ВОЗВРАТ В ПРОФИЛЬ ИЗ НАПОМИНАНИЙ ====================
+
+@router.callback_query(F.data == "reminders_back_to_profile")
+async def back_to_profile_from_reminders(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в профиль из напоминаний."""
+    await callback.answer()
+    await state.clear()
+    
+    from app.bot.handlers.profile import show_profile
+    
+    await callback.message.delete()
+    await show_profile(callback.message, state, db_session)
 
 
 # ==================== ОБРАБОТЧИК ДЛЯ КНОПКИ "ЗАПОЛНИТЬ ДНЕВНИК" ====================

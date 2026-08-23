@@ -39,17 +39,30 @@ async def show_settings(message: types.Message, state: FSMContext):
     logger.info(f"User opened settings: {message.from_user.id}")
 
 
-async def show_settings_from_profile(message: types.Message, state: FSMContext):
-    """Показывает меню настроек с возвратом в профиль."""
+async def show_settings_edit(message: types.Message, state: FSMContext, callback: CallbackQuery = None):
+    """
+    Показывает настройки с редактированием текущего сообщения (из профиля).
+    """
     await state.clear()
     
-    await message.answer(
+    text = (
         "⚙️ <b>Настройки</b>\n\n"
         "Здесь вы можете управлять своими данными.\n\n"
-        "Доступные действия:",
-        reply_markup=get_settings_keyboard(back_to="profile"),
-        parse_mode="HTML",
+        "Доступные действия:"
     )
+    
+    if callback:
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_settings_keyboard(back_to="profile"),
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(
+            text,
+            reply_markup=get_settings_keyboard(back_to="profile"),
+            parse_mode="HTML",
+        )
     logger.info(f"User opened settings from profile: {message.from_user.id}")
 
 
@@ -81,6 +94,8 @@ async def cancel_delete_data(callback: CallbackQuery):
     """Отмена удаления данных."""
     await callback.answer("Удаление отменено")
     
+    # Определяем, откуда пришли (из меню или из профиля)
+    # По умолчанию возвращаем в меню
     await callback.message.edit_text(
         "⚙️ <b>Настройки</b>\n\n"
         "Удаление данных отменено.",
