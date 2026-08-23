@@ -143,13 +143,13 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     
     elif action == "reminders":
         await callback.message.delete()
-        from app.bot.handlers.reminders import show_reminders_menu
-        await show_reminders_menu(callback.message, state, db_session)
+        from app.bot.handlers.reminders import show_reminders_edit
+        await show_reminders_edit(callback.message, state, db_session, callback)
     
     elif action == "subscription":
         await callback.message.delete()
-        from app.bot.handlers.pro import show_pro_menu
-        await show_pro_menu(callback.message, state, db_session)
+        from app.bot.handlers.pro import show_pro_edit
+        await show_pro_edit(callback.message, state, db_session, callback)
     
     elif action == "privacy":
         privacy_text = (
@@ -197,3 +197,50 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
             reply_markup=get_profile_back_keyboard(),
             parse_mode="HTML",
         )
+
+
+# ==================== ОБРАБОТЧИКИ ВОЗВРАТА ИЗ ДРУГИХ РАЗДЕЛОВ ====================
+
+@router.callback_query(F.data == "reminders_back_to_profile")
+async def reminders_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в профиль из напоминаний."""
+    await callback.answer()
+    await state.clear()
+    await callback.message.delete()
+    await show_profile(callback.message, state, db_session)
+
+
+@router.callback_query(F.data == "settings_back_to_profile")
+async def settings_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в профиль из настроек."""
+    await callback.answer()
+    await state.clear()
+    await callback.message.delete()
+    await show_profile(callback.message, state, db_session)
+
+
+@router.callback_query(F.data == "pro_back_to_profile")
+async def pro_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в профиль из PRO."""
+    await callback.answer()
+    await state.clear()
+    await callback.message.delete()
+    await show_profile(callback.message, state, db_session)
+
+
+@router.callback_query(F.data == "privacy_back_to_profile")
+async def privacy_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в профиль из Конфиденциальности."""
+    await callback.answer()
+    await state.clear()
+    await callback.message.delete()
+    await show_profile(callback.message, state, db_session)
+
+
+@router.callback_query(F.data == "help_back_to_profile")
+async def help_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в профиль из Помощи."""
+    await callback.answer()
+    await state.clear()
+    await callback.message.delete()
+    await show_profile(callback.message, state, db_session)
