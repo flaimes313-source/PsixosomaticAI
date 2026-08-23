@@ -77,7 +77,8 @@ class AdminStates(StatesGroup):
     """
     Состояния для админ-панели.
     """
-    waiting_for_broadcast_recipients = State()  # ← ДОБАВЛЕНО
+    waiting_for_broadcast_recipients = State()  # Выбор получателей
+    waiting_for_broadcast_ids = State()         # ← ДОБАВЛЕНО: Ожидание ввода ID
     waiting_for_broadcast_text = State()        # Ожидание текста для рассылки
     waiting_for_broadcast_image = State()       # Ожидание картинки для рассылки
     waiting_for_broadcast_confirm = State()     # Подтверждение рассылки
