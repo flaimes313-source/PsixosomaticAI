@@ -301,14 +301,18 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
     )
 
 
+# ==================== ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ОТКЛЮЧЕНИЯ ====================
+
 @router.callback_query(F.data == "reminders_disable")
 async def disable_reminders(callback: CallbackQuery, db_session: AsyncSession):
+    """Отключает напоминания."""
     await callback.answer("Напоминания отключены")
     
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
     await reminder_repo.update(telegram_id, enabled=False)
     
+    # Обновляем текущее сообщение (edit_text вместо answer)
     await callback.message.edit_text(
         "🔕 <b>Напоминания отключены</b>\n\n"
         "Ты больше не будешь получать напоминания о дневнике.\n\n"
@@ -316,6 +320,7 @@ async def disable_reminders(callback: CallbackQuery, db_session: AsyncSession):
         reply_markup=get_reminders_menu_keyboard(False),
         parse_mode="HTML",
     )
+    logger.info(f"Reminders disabled for user: {telegram_id}")
 
 
 @router.callback_query(F.data == "reminders_back_to_menu")
