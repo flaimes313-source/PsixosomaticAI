@@ -11,7 +11,7 @@ from app.bot.keyboards.pro import (
     get_pro_features_keyboard,
     get_pro_payment_keyboard,
     get_pro_success_keyboard,
-    get_pro_menu_keyboard_with_back_to_profile,  # ← НОВЫЙ ИМПОРТ
+    get_pro_menu_keyboard_with_back_to_profile,
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.bot.states import ProStates
@@ -68,10 +68,8 @@ async def show_pro_menu(message: types.Message, state: FSMContext, db_session: A
     logger.info(f"User opened PRO menu: {user_id}")
 
 
-async def show_pro_edit(message: types.Message, state: FSMContext, db_session: AsyncSession, callback: CallbackQuery = None):
-    """
-    Показывает PRO с редактированием текущего сообщения (из профиля).
-    """
+async def show_pro_from_profile(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Показывает PRO с возвратом в профиль."""
     await state.clear()
     
     user_id = message.from_user.id
@@ -104,19 +102,11 @@ async def show_pro_edit(message: types.Message, state: FSMContext, db_session: A
         f"💳 Стоимость: <b>{settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>"
     )
     
-    if callback:
-        await callback.message.edit_text(
-            text,
-            reply_markup=get_pro_menu_keyboard_with_back_to_profile(is_pro),  # ← ИЗМЕНЕНО
-            parse_mode="HTML",
-        )
-    else:
-        await message.answer(
-            text,
-            reply_markup=get_pro_menu_keyboard_with_back_to_profile(is_pro),  # ← ИЗМЕНЕНО
-            parse_mode="HTML",
-        )
-    
+    await message.answer(
+        text,
+        reply_markup=get_pro_menu_keyboard_with_back_to_profile(is_pro),
+        parse_mode="HTML",
+    )
     logger.info(f"User opened PRO from profile: {user_id}")
 
 
@@ -204,8 +194,6 @@ async def start_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         parse_mode="HTML",
     )
 
-
-# ==================== ИСПРАВЛЕННАЯ ФУНКЦИЯ ====================
 
 @router.callback_query(F.data == "pro_check_payment")
 async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -312,8 +300,6 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
 
 
-# ==================== ОСТАЛЬНЫЕ ФУНКЦИИ ====================
-
 @router.callback_query(F.data == "pro_back")
 async def back_to_pro_menu(callback: CallbackQuery, db_session: AsyncSession):
     """Возврат в меню PRO."""
@@ -344,7 +330,7 @@ async def back_to_pro_menu(callback: CallbackQuery, db_session: AsyncSession):
         "• 📔 Неограниченный дневник\n"
         "• 🧠 Больше AI-анализов (безлимит)\n"
         "• 📈 Расширенные отчёты\n"
-        "• 🔔 Расширенные настройки напоминаций\n\n"
+        "• 🔔 Расширенные настройки напоминаний\n\n"
         f"💳 Стоимость: <b>{settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>"
     )
     
@@ -399,7 +385,7 @@ async def show_payments_history(callback: CallbackQuery, db_session: AsyncSessio
     )
 
 
-# ==================== ВОЗВРАТ В ПРОФИЛЬ ИЗ PRO ====================
+# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
 
 @router.callback_query(F.data == "pro_back_to_profile")
 async def back_to_profile_from_pro(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):

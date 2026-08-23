@@ -15,7 +15,7 @@ from app.bot.keyboards.reminders import (
     get_time_preset_keyboard,
     get_days_keyboard,
     get_cancel_keyboard,
-    get_reminders_menu_keyboard_with_back_to_profile,  # ← НОВЫЙ ИМПОРТ
+    get_reminders_menu_keyboard_with_back_to_profile,
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.repositories.reminder import ReminderRepository
@@ -54,10 +54,8 @@ async def show_reminders_menu(message: types.Message, state: FSMContext, db_sess
     logger.info(f"User opened reminders from menu: {telegram_id}")
 
 
-async def show_reminders_edit(message: types.Message, state: FSMContext, db_session: AsyncSession, callback: CallbackQuery = None):
-    """
-    Показывает напоминания с редактированием текущего сообщения (из профиля).
-    """
+async def show_reminders_from_profile(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Показывает напоминания с возвратом в профиль."""
     await state.clear()
     
     telegram_id = message.from_user.id
@@ -76,19 +74,11 @@ async def show_reminders_edit(message: types.Message, state: FSMContext, db_sess
         "Выбери действие:"
     )
     
-    if callback:
-        await callback.message.edit_text(
-            text,
-            reply_markup=get_reminders_menu_keyboard_with_back_to_profile(settings.enabled),  # ← ИЗМЕНЕНО
-            parse_mode="HTML",
-        )
-    else:
-        await message.answer(
-            text,
-            reply_markup=get_reminders_menu_keyboard_with_back_to_profile(settings.enabled),  # ← ИЗМЕНЕНО
-            parse_mode="HTML",
-        )
-    
+    await message.answer(
+        text,
+        reply_markup=get_reminders_menu_keyboard_with_back_to_profile(settings.enabled),
+        parse_mode="HTML",
+    )
     logger.info(f"User opened reminders from profile: {telegram_id}")
 
 
@@ -369,7 +359,7 @@ async def close_reminders(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== ВОЗВРАТ В ПРОФИЛЬ ИЗ НАПОМИНАНИЙ ====================
+# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
 
 @router.callback_query(F.data == "reminders_back_to_profile")
 async def back_to_profile_from_reminders(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
