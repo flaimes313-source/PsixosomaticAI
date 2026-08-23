@@ -16,7 +16,10 @@ def get_profile_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔐 Конфиденциальность", callback_data="profile_privacy"),
         ],
         [
-            InlineKeyboardButton(text="🔙 Назад", callback_data="profile_back"),
+            InlineKeyboardButton(text="❓ Помощь", callback_data="profile_help"),
+        ],
+        [
+            InlineKeyboardButton(text="🔙 Назад в меню", callback_data="profile_back"),
         ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

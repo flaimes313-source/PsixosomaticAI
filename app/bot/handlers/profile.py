@@ -37,12 +37,21 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     )
     user = result.scalar_one_or_none()
     
+    # Если пользователь не зарегистрирован — создаём его автоматически
     if not user:
-        await message.answer(
-            "⚠️ Вы еще не зарегистрированы.\nОтправьте /start",
-            reply_markup=get_main_menu_keyboard(),
+        from app.db.repositories.user import UserRepository
+        user_repo = UserRepository(db_session)
+        user = await user_repo.get_or_create(
+            telegram_id=message.from_user.id,
+            username=message.from_user.username,
+            first_name=message.from_user.first_name,
+            last_name=message.from_user.last_name,
+            language_code=message.from_user.language_code,
         )
-        return
+        # Устанавливаем часовой пояс по умолчанию
+        user.timezone = "Europe/Moscow"
+        await db_session.commit()
+        await db_session.refresh(user)
     
     # Получаем информацию о подписке
     access_service = AccessService(db_session)
@@ -112,11 +121,9 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     action = callback.data.replace("profile_", "")
     
     if action == "back":
-        await callback.message.edit_text(
-            "Главное меню:",
-            reply_markup=get_main_menu_keyboard(),
-        )
+        # Возвращаемся в профиль (не в главное меню!)
         await callback.message.delete()
+        await show_profile(callback.message, state, db_session)
         return
     
     elif action == "settings":
@@ -132,7 +139,7 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         await show_reminders_menu(callback.message, state, db_session)
     
     elif action == "privacy":
-        # Показываем конфиденциальность
+        # Показываем конфиденциальность (без проверки регистрации)
         privacy_text = (
             "🔐 <b>Конфиденциальность</b>\n\n"
             "Мы сохраняем технические данные,\n"
@@ -158,8 +165,35 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         await callback.message.delete()
         await show_pro_menu(callback.message, state, db_session)
     
+    elif action == "help":
+        # Показываем помощь
+        help_text = (
+            "❓ <b>Помощь</b>\n\n"
+            "🧠 Разобрать симптом\n"
+            "Помогает исследовать возможную связь\n"
+            "телесных ощущений со стрессом и эмоциями.\n\n"
+            "📔 Дневник\n"
+            "Ведите записи о состоянии.\n\n"
+            "📊 Моя динамика\n"
+            "Анализирует ваши записи за период.\n\n"
+            "📋 История анализов\n"
+            "Все предыдущие разборы симптомов.\n\n"
+            "⭐ PRO\n"
+            "Расширенные возможности.\n\n"
+            "👤 Профиль\n"
+            "Управление настройками.\n\n"
+            "━━━━━━━━━━━━━━━━━━━\n\n"
+            "⚠️ Если тебе сейчас плохо или есть\n"
+            "сильные/необычные физические симптомы,\n"
+            "обратись к врачу или в экстренную помощь."
+        )
+        await callback.message.edit_text(
+            help_text,
+            reply_markup=get_profile_back_keyboard(),
+            parse_mode="HTML",
+        )
+    
     elif action == "back_to_profile":
         # Возврат в профиль
         await callback.message.delete()
-        # Перезапускаем профиль
         await show_profile(callback.message, state, db_session)
