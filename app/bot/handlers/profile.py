@@ -15,7 +15,6 @@ from app.bot.keyboards.profile import (
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.models.user import User
-from app.db.models.subscription import Subscription, PlanType
 from app.db.models.reminder import ReminderSettings
 from app.services.access_service import AccessService
 from app.services.subscription_service import SubscriptionService
@@ -48,7 +47,6 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
             last_name=message.from_user.last_name,
             language_code=message.from_user.language_code,
         )
-        # Устанавливаем часовой пояс по умолчанию
         user.timezone = "Europe/Moscow"
         await db_session.commit()
         await db_session.refresh(user)
@@ -84,7 +82,6 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     # Формируем текст профиля
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Неизвестно"
     
-    # Определяем часовой пояс
     try:
         tz = ZoneInfo(user.timezone) if user.timezone else ZoneInfo("UTC")
         current_time = datetime.now(tz).strftime("%H:%M")
@@ -120,26 +117,36 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     
     action = callback.data.replace("profile_", "")
     
-    if action == "back":
-        # Возвращаемся в профиль (не в главное меню!)
+    # ==================== НАВИГАЦИЯ ====================
+    
+    if action == "back_to_profile":
+        # Возврат в профиль (из вложенных разделов)
         await callback.message.delete()
         await show_profile(callback.message, state, db_session)
         return
     
+    if action == "back_to_menu":
+        # Возврат в главное меню
+        await callback.message.delete()
+        await callback.message.answer(
+            "Главное меню:",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        return
+    
+    # ==================== РАЗДЕЛЫ ====================
+    
     elif action == "settings":
-        # Перенаправляем в настройки
         from app.bot.handlers.settings import show_settings
         await callback.message.delete()
         await show_settings(callback.message, state)
     
     elif action == "reminders":
-        # Перенаправляем в напоминания
         from app.bot.handlers.reminders import show_reminders_menu
         await callback.message.delete()
         await show_reminders_menu(callback.message, state, db_session)
     
     elif action == "privacy":
-        # Показываем конфиденциальность (без проверки регистрации)
         privacy_text = (
             "🔐 <b>Конфиденциальность</b>\n\n"
             "Мы сохраняем технические данные,\n"
@@ -155,18 +162,16 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         )
         await callback.message.edit_text(
             privacy_text,
-            reply_markup=get_profile_back_keyboard(),
+            reply_markup=get_profile_back_keyboard(),  # ← Назад в профиль
             parse_mode="HTML",
         )
     
     elif action == "subscription":
-        # Перенаправляем в PRO
         from app.bot.handlers.pro import show_pro_menu
         await callback.message.delete()
         await show_pro_menu(callback.message, state, db_session)
     
     elif action == "help":
-        # Показываем помощь
         help_text = (
             "❓ <b>Помощь</b>\n\n"
             "🧠 Разобрать симптом\n"
@@ -189,11 +194,6 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         )
         await callback.message.edit_text(
             help_text,
-            reply_markup=get_profile_back_keyboard(),
+            reply_markup=get_profile_back_keyboard(),  # ← Назад в профиль
             parse_mode="HTML",
         )
-    
-    elif action == "back_to_profile":
-        # Возврат в профиль
-        await callback.message.delete()
-        await show_profile(callback.message, state, db_session)

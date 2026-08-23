@@ -19,14 +19,14 @@ def get_profile_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="❓ Помощь", callback_data="profile_help"),
         ],
         [
-            InlineKeyboardButton(text="🔙 Назад в меню", callback_data="profile_back"),
+            InlineKeyboardButton(text="🔙 Назад в меню", callback_data="profile_back_to_menu"),
         ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_profile_back_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура с кнопкой возврата в профиль."""
+    """Клавиатура с кнопкой возврата в профиль (для вложенных разделов)."""
     buttons = [
         [InlineKeyboardButton(text="🔙 Назад в профиль", callback_data="profile_back_to_profile")],
     ]
