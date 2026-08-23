@@ -98,30 +98,94 @@ async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, d
     
     recipients_type = callback.data.replace("broadcast_recipients_", "")
     
-    # Сохраняем в FSM
-    await state.update_data(recipients=recipients_type)
+    # Если выбраны все, PRO или FREE — сразу переходим к тексту
+    if recipients_type in ["all", "pro", "free"]:
+        await state.update_data(recipients=recipients_type)
+        await state.set_state(AdminStates.waiting_for_broadcast_text)
+        
+        recipients_names = {
+            "all": "Все пользователи",
+            "pro": "Только PRO",
+            "free": "Только FREE",
+        }
+        name = recipients_names.get(recipients_type, recipients_type)
+        
+        await callback.message.edit_text(
+            f"📢 Выбраны получатели: {name}\n\n"
+            "Теперь введи текст сообщения для рассылки.\n"
+            "Можно отправить картинку (приложи файлом к следующему сообщению).\n\n"
+            "Чтобы отменить — нажми /cancel",
+            reply_markup=get_broadcast_keyboard(),
+        )
+        logger.info(f"📢 Broadcast recipients set: {recipients_type}")
+        return
+    
+    # Если выбраны ID — запрашиваем ID
+    elif recipients_type == "ids":
+        await callback.message.edit_text(
+            "📢 Введите Telegram ID пользователей через запятую.\n\n"
+            "Пример: 123456789, 987654321, 555555555\n\n"
+            "Чтобы отменить — нажми /cancel",
+            reply_markup=get_broadcast_keyboard(),
+        )
+        await state.set_state(AdminStates.waiting_for_broadcast_ids)
+        return
+
+
+@router.message(AdminStates.waiting_for_broadcast_ids, F.text)
+async def process_broadcast_ids(message: types.Message, state: FSMContext):
+    """Обрабатывает ввод ID для рассылки."""
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Доступ запрещён.")
+        await state.clear()
+        return
+    
+    text = message.text.strip()
+    
+    # Если отмена
+    if text == "/cancel":
+        await state.clear()
+        await message.answer(
+            "🛡️ Админ-панель\n\n"
+            "Выбери действие:",
+            reply_markup=get_admin_menu_keyboard(),
+        )
+        return
+    
+    # Парсим ID
+    try:
+        user_ids = [int(x.strip()) for x in text.split(",") if x.strip().isdigit()]
+    except ValueError:
+        await message.answer(
+            "❌ Неверный формат. Введи ID через запятую.\n"
+            "Пример: 123456789, 987654321",
+            reply_markup=get_broadcast_keyboard(),
+        )
+        return
+    
+    if not user_ids:
+        await message.answer(
+            "❌ Не найдено ни одного ID. Попробуй ещё раз.",
+            reply_markup=get_broadcast_keyboard(),
+        )
+        return
+    
+    # Сохраняем ID и переходим к тексту
+    await state.update_data(recipients="ids", user_ids=user_ids)
     await state.set_state(AdminStates.waiting_for_broadcast_text)
     
-    recipients_names = {
-        "all": "Все пользователи",
-        "pro": "Только PRO",
-        "free": "Только FREE",
-        "ids": "По ID",
-    }
-    name = recipients_names.get(recipients_type, recipients_type)
-    
-    await callback.message.edit_text(
-        f"📢 Выбраны получатели: {name}\n\n"
+    await message.answer(
+        f"📢 Выбрано пользователей: {len(user_ids)}\n\n"
         "Теперь введи текст сообщения для рассылки.\n"
         "Можно отправить картинку (приложи файлом к следующему сообщению).\n\n"
         "Чтобы отменить — нажми /cancel",
-        reply_markup=None,
+        reply_markup=get_broadcast_keyboard(),
     )
-    logger.info(f"📢 Broadcast recipients set: {recipients_type}")
+    logger.info(f"📢 Broadcast IDs: {user_ids}")
 
 
 @router.message(AdminStates.waiting_for_broadcast_text, F.text)
-async def process_broadcast_text(message: types.Message, state: FSMContext, db_session: AsyncSession):
+async def process_broadcast_text(message: types.Message, state: FSMContext):
     """Обрабатывает текст для рассылки."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
@@ -129,6 +193,16 @@ async def process_broadcast_text(message: types.Message, state: FSMContext, db_s
         return
     
     text = message.text.strip()
+    
+    if text == "/cancel":
+        await state.clear()
+        await message.answer(
+            "🛡️ Админ-панель\n\n"
+            "Выбери действие:",
+            reply_markup=get_admin_menu_keyboard(),
+        )
+        return
+    
     await state.update_data(broadcast_text=text)
     await state.set_state(AdminStates.waiting_for_broadcast_image)
     
@@ -143,7 +217,7 @@ async def process_broadcast_text(message: types.Message, state: FSMContext, db_s
 
 
 @router.message(AdminStates.waiting_for_broadcast_image, F.photo)
-async def process_broadcast_image(message: types.Message, state: FSMContext, db_session: AsyncSession):
+async def process_broadcast_image(message: types.Message, state: FSMContext):
     """Обрабатывает картинку для рассылки."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
@@ -157,11 +231,23 @@ async def process_broadcast_image(message: types.Message, state: FSMContext, db_
     data = await state.get_data()
     text = data.get("broadcast_text", "")
     recipients_type = data.get("recipients", "all")
+    user_ids = data.get("user_ids", [])
+    
+    # Формируем информацию о получателях
+    if recipients_type == "ids":
+        recipients_info = f"По ID ({len(user_ids)} пользователей)"
+    else:
+        recipients_names = {
+            "all": "Все пользователи",
+            "pro": "Только PRO",
+            "free": "Только FREE",
+        }
+        recipients_info = recipients_names.get(recipients_type, recipients_type)
     
     await message.answer_photo(
         photo=file_id,
         caption=f"📢 Проверь сообщение\n\n"
-                f"Получатели: {recipients_type}\n"
+                f"Получатели: {recipients_info}\n"
                 f"Текст:\n{text}\n\n"
                 "Всё верно? Нажми кнопку ниже, чтобы отправить.",
         reply_markup=get_confirm_broadcast_keyboard(),
@@ -169,36 +255,8 @@ async def process_broadcast_image(message: types.Message, state: FSMContext, db_
     await state.set_state(AdminStates.waiting_for_broadcast_confirm)
 
 
-# ==================== НОВЫЙ ОБРАБОТЧИК ДЛЯ "ОТПРАВИТЬ БЕЗ КАРТИНКИ" ====================
-
-@router.callback_query(F.data == "broadcast_skip_image")
-async def skip_image_and_show_preview(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Обработчик для кнопки 'Отправить без картинки'."""
-    if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Доступ запрещён.")
-        return
-    
-    await callback.answer()
-    
-    data = await state.get_data()
-    text = data.get("broadcast_text", "")
-    recipients_type = data.get("recipients", "all")
-    
-    await state.update_data(broadcast_image=None)
-    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
-    
-    await callback.message.edit_text(
-        f"📢 Проверь сообщение\n\n"
-        f"Получатели: {recipients_type}\n"
-        f"Текст:\n{text}\n\n"
-        "Всё верно? Нажми кнопку ниже, чтобы отправить.",
-        reply_markup=get_confirm_broadcast_keyboard(),
-    )
-    logger.info(f"📢 Broadcast without image, recipients={recipients_type}")
-
-
 @router.message(AdminStates.waiting_for_broadcast_image, F.text == "📨 Отправить без картинки")
-async def send_broadcast_without_image_text(message: types.Message, state: FSMContext, db_session: AsyncSession):
+async def send_broadcast_without_image_text(message: types.Message, state: FSMContext):
     """Отправляет рассылку без картинки (через текст)."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
@@ -208,17 +266,29 @@ async def send_broadcast_without_image_text(message: types.Message, state: FSMCo
     data = await state.get_data()
     text = data.get("broadcast_text", "")
     recipients_type = data.get("recipients", "all")
+    user_ids = data.get("user_ids", [])
     
     await state.update_data(broadcast_image=None)
-    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
+    
+    # Формируем информацию о получателях
+    if recipients_type == "ids":
+        recipients_info = f"По ID ({len(user_ids)} пользователей)"
+    else:
+        recipients_names = {
+            "all": "Все пользователи",
+            "pro": "Только PRO",
+            "free": "Только FREE",
+        }
+        recipients_info = recipients_names.get(recipients_type, recipients_type)
     
     await message.answer(
         f"📢 Проверь сообщение\n\n"
-        f"Получатели: {recipients_type}\n"
+        f"Получатели: {recipients_info}\n"
         f"Текст:\n{text}\n\n"
         "Всё верно? Нажми кнопку ниже, чтобы отправить.",
         reply_markup=get_confirm_broadcast_keyboard(),
     )
+    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
 
 
 @router.callback_query(F.data == "broadcast_confirm")
@@ -234,6 +304,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     text = data.get("broadcast_text", "")
     image = data.get("broadcast_image")
     recipients_type = data.get("recipients", "all")
+    user_ids = data.get("user_ids", [])
     
     logger.info(f"📢 FINAL: text_length={len(text)}, image={image}, recipients={recipients_type}")
     
@@ -263,12 +334,19 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
         )
         users = result.scalars().all()
         logger.info(f"📢 Free users: {len(users)}")
-    elif recipients_type == "ids":
-        await callback.message.edit_text(
-            "❌ Функция 'По ID' пока не реализована. Выбери другую группу.",
-            reply_markup=get_broadcast_recipients_keyboard(),
-        )
-        return
+    elif recipients_type == "ids" and user_ids:
+        # 🔥 РЕАЛИЗАЦИЯ ПО ID
+        users = []
+        for uid in user_ids:
+            result = await db_session.execute(
+                select(User).where(User.telegram_id == uid)
+            )
+            user = result.scalar_one_or_none()
+            if user:
+                users.append(user)
+            else:
+                logger.warning(f"User with ID {uid} not found")
+        logger.info(f"📢 IDs users found: {len(users)}")
     else:
         await callback.message.edit_text("❌ Не выбраны получатели.", reply_markup=get_admin_menu_keyboard())
         return
