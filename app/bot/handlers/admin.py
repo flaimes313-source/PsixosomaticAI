@@ -5,7 +5,7 @@ import asyncio
 from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 from datetime import datetime
@@ -72,18 +72,234 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
         await show_whitelist(callback, db_session)
     
     elif action == "broadcast":
+        # Выбор получателей через inline-кнопки (без FSM)
         await callback.message.edit_text(
             "📢 Создать рассылку\n\n"
             "Выбери получателей:",
             reply_markup=get_broadcast_recipients_keyboard(),
         )
-        await state.set_state(AdminStates.waiting_for_broadcast_recipients)
     
     elif action == "support_requests":
         await show_support_requests(callback, db_session)
     
     elif action == "stats":
         await show_stats(callback, db_session)
+
+
+# ==================== ОБРАБОТЧИКИ ДЛЯ КНОПОК РАССЫЛКИ (ЧЕРЕЗ CALLBACK) ====================
+
+@router.callback_query(F.data.startswith("broadcast_recipients_"))
+async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Выбор получателей рассылки через callback."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён.")
+        return
+    
+    await callback.answer()
+    
+    recipients_type = callback.data.replace("broadcast_recipients_", "")
+    
+    # Сохраняем в FSM
+    await state.update_data(recipients=recipients_type)
+    await state.set_state(AdminStates.waiting_for_broadcast_text)
+    
+    recipients_names = {
+        "all": "Все пользователи",
+        "pro": "Только PRO",
+        "free": "Только FREE",
+    }
+    name = recipients_names.get(recipients_type, recipients_type)
+    
+    await callback.message.edit_text(
+        f"📢 Выбраны получатели: {name}\n\n"
+        "Теперь введи текст сообщения для рассылки.\n"
+        "Можно отправить картинку (приложи файлом к следующему сообщению).\n\n"
+        "Чтобы отменить — нажми /cancel",
+        reply_markup=None,
+    )
+    logger.info(f"📢 Broadcast recipients set: {recipients_type}")
+
+
+@router.message(AdminStates.waiting_for_broadcast_text, F.text)
+async def process_broadcast_text(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Обрабатывает текст для рассылки."""
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Доступ запрещён.")
+        await state.clear()
+        return
+    
+    text = message.text.strip()
+    await state.update_data(broadcast_text=text)
+    await state.set_state(AdminStates.waiting_for_broadcast_image)
+    
+    await message.answer(
+        f"📢 Текст получен!\n\n"
+        f"Текст:\n{text}\n\n"
+        "Теперь пришли картинку (если нужна) или нажми кнопку ниже, чтобы отправить без картинки.\n\n"
+        "Чтобы отменить — нажми /cancel",
+        reply_markup=get_broadcast_options_keyboard(),
+    )
+    logger.info(f"📢 Broadcast text received, length={len(text)}")
+
+
+@router.message(AdminStates.waiting_for_broadcast_image, F.photo)
+async def process_broadcast_image(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Обрабатывает картинку для рассылки."""
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Доступ запрещён.")
+        await state.clear()
+        return
+    
+    photo = message.photo[-1]
+    file_id = photo.file_id
+    await state.update_data(broadcast_image=file_id)
+    
+    data = await state.get_data()
+    text = data.get("broadcast_text", "")
+    recipients_type = data.get("recipients", "all")
+    
+    # Показываем предпросмотр
+    await message.answer_photo(
+        photo=file_id,
+        caption=f"📢 Проверь сообщение\n\n"
+                f"Получатели: {recipients_type}\n"
+                f"Текст:\n{text}\n\n"
+                "Всё верно? Нажми кнопку ниже, чтобы отправить.",
+        reply_markup=get_confirm_broadcast_keyboard(),
+    )
+    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
+
+
+@router.message(AdminStates.waiting_for_broadcast_image, F.text == "📨 Отправить без картинки")
+async def send_broadcast_without_image(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Отправляет рассылку без картинки."""
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Доступ запрещён.")
+        await state.clear()
+        return
+    
+    data = await state.get_data()
+    text = data.get("broadcast_text", "")
+    recipients_type = data.get("recipients", "all")
+    
+    await state.update_data(broadcast_image=None)
+    
+    # Показываем предпросмотр
+    await message.answer(
+        f"📢 Проверь сообщение\n\n"
+        f"Получатели: {recipients_type}\n"
+        f"Текст:\n{text}\n\n"
+        "Всё верно? Нажми кнопку ниже, чтобы отправить.",
+        reply_markup=get_confirm_broadcast_keyboard(),
+    )
+    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
+
+
+@router.callback_query(F.data == "broadcast_confirm")
+async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Подтверждение отправки рассылки."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён.")
+        return
+    
+    await callback.answer("Отправляю рассылку...")
+    
+    data = await state.get_data()
+    text = data.get("broadcast_text", "")
+    image = data.get("broadcast_image")
+    recipients_type = data.get("recipients", "all")
+    
+    logger.info(f"📢 FINAL: text_length={len(text)}, image={image}, recipients={recipients_type}")
+    
+    # Получаем пользователей
+    if recipients_type == "all":
+        result = await db_session.execute(select(User))
+        users = result.scalars().all()
+        logger.info(f"📢 All users: {len(users)}")
+    elif recipients_type == "pro":
+        result = await db_session.execute(
+            select(User).join(ProWhitelist, User.telegram_id == ProWhitelist.user_id)
+        )
+        users = result.scalars().all()
+        logger.info(f"📢 Pro users: {len(users)}")
+    elif recipients_type == "free":
+        result = await db_session.execute(
+            select(User).where(
+                ~User.telegram_id.in_(
+                    select(ProWhitelist.user_id)
+                )
+            )
+        )
+        users = result.scalars().all()
+        logger.info(f"📢 Free users: {len(users)}")
+    else:
+        await callback.message.edit_text("❌ Не выбраны получатели.", reply_markup=get_admin_menu_keyboard())
+        return
+    
+    if not users:
+        await callback.message.edit_text("❌ Нет пользователей для рассылки.", reply_markup=get_admin_menu_keyboard())
+        return
+    
+    success_count = 0
+    fail_count = 0
+    
+    # Сохраняем рассылку в БД
+    broadcast = Broadcast(
+        title="Рассылка",
+        message=text,
+        image_url=image,
+        created_by=callback.from_user.id,
+        recipients_count=len(users),
+    )
+    db_session.add(broadcast)
+    await db_session.commit()
+    
+    # Отправляем каждому пользователю
+    for user in users:
+        try:
+            if image:
+                await callback.bot.send_photo(
+                    chat_id=user.telegram_id,
+                    photo=image,
+                    caption=text,
+                    parse_mode="HTML",
+                )
+            else:
+                await callback.bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=text,
+                    parse_mode="HTML",
+                )
+            success_count += 1
+        except Exception as e:
+            logger.error(f"Failed to send to {user.telegram_id}: {e}")
+            fail_count += 1
+        await asyncio.sleep(0.05)
+    
+    broadcast.is_sent = True
+    broadcast.sent_at = datetime.now()
+    await db_session.commit()
+    await state.clear()
+    
+    await callback.message.edit_text(
+        f"✅ Рассылка отправлена!\n\n"
+        f"Доставлено: {success_count}\n"
+        f"Ошибок: {fail_count}\n"
+        f"Всего: {len(users)}",
+        reply_markup=get_admin_menu_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "broadcast_cancel")
+async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
+    """Отмена рассылки."""
+    await callback.answer("Рассылка отменена")
+    await state.clear()
+    await callback.message.edit_text(
+        "🛡️ Админ-панель\n\n"
+        "Выбери действие:",
+        reply_markup=get_admin_menu_keyboard(),
+    )
 
 
 # ==================== БЕЛЫЙ СПИСОК ====================
@@ -218,238 +434,7 @@ async def remove_pro_command(message: types.Message, db_session: AsyncSession):
         await message.answer("❌ Ошибка при удалении пользователя.")
 
 
-# ==================== РАССЫЛКА ====================
-
-@router.message(AdminStates.waiting_for_broadcast_recipients, F.text)
-async def process_broadcast_recipients(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён.")
-        await state.clear()
-        return
-    
-    choice = message.text.strip()
-    
-    if choice == "📨 Все пользователи":
-        await state.update_data(recipients="all")
-        logger.info(f"📢 BROADCAST: recipients=all")
-    elif choice == "📨 Только PRO":
-        await state.update_data(recipients="pro")
-        logger.info(f"📢 BROADCAST: recipients=pro")
-    elif choice == "📨 Только FREE":
-        await state.update_data(recipients="free")
-        logger.info(f"📢 BROADCAST: recipients=free")
-    elif choice.startswith("📨 По ID:"):
-        ids_str = choice.replace("📨 По ID:", "").strip()
-        user_ids = [int(x.strip()) for x in ids_str.split(",") if x.strip().isdigit()]
-        await state.update_data(recipients="ids", user_ids=user_ids)
-        logger.info(f"📢 BROADCAST: recipients=ids, user_ids={user_ids}")
-    else:
-        await message.answer(
-            "❌ Неверный выбор. Используй кнопки.",
-            reply_markup=get_broadcast_recipients_keyboard(),
-        )
-        return
-    
-    await message.answer(
-        "📢 Введи текст сообщения для рассылки.\n\n"
-        "Можно отправить картинку (приложи файлом к следующему сообщению).\n\n"
-        "Чтобы отменить — нажми /cancel",
-        reply_markup=get_broadcast_keyboard(),
-    )
-    await state.set_state(AdminStates.waiting_for_broadcast_text)
-
-
-@router.message(AdminStates.waiting_for_broadcast_text, F.text)
-async def process_broadcast_text(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён.")
-        await state.clear()
-        return
-    
-    text = message.text.strip()
-    await state.update_data(broadcast_text=text)
-    logger.info(f"📢 BROADCAST: text received, length={len(text)}")
-    
-    await message.answer(
-        f"📢 Проверь сообщение\n\n"
-        f"Текст:\n{text}\n\n"
-        "Хочешь добавить картинку? Приложи её к этому сообщению.\n"
-        "Если картинка не нужна — нажми 'Отправить без картинки'.",
-        reply_markup=get_broadcast_options_keyboard(),
-    )
-    await state.set_state(AdminStates.waiting_for_broadcast_image)
-
-
-@router.message(AdminStates.waiting_for_broadcast_image, F.photo)
-async def process_broadcast_image(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён.")
-        await state.clear()
-        return
-    
-    photo = message.photo[-1]
-    file_id = photo.file_id
-    await state.update_data(broadcast_image=file_id)
-    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
-    
-    data = await state.get_data()
-    text = data.get("broadcast_text", "")
-    
-    logger.info(f"📢 BROADCAST: image received, file_id={file_id}")
-    
-    await message.answer_photo(
-        photo=file_id,
-        caption=f"📢 Проверь сообщение\n\n"
-                f"Текст:\n{text}\n\n"
-                "Всё верно?",
-        reply_markup=get_confirm_broadcast_keyboard(),
-    )
-
-
-@router.message(AdminStates.waiting_for_broadcast_image, F.text == "📨 Отправить без картинки")
-async def send_broadcast_without_image(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён.")
-        await state.clear()
-        return
-    
-    data = await state.get_data()
-    text = data.get("broadcast_text", "")
-    await state.update_data(broadcast_image=None)
-    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
-    
-    logger.info(f"📢 BROADCAST: no image, text length={len(text)}")
-    
-    await message.answer(
-        f"📢 Проверь сообщение\n\n"
-        f"Текст:\n{text}\n\n"
-        "Всё верно?",
-        reply_markup=get_confirm_broadcast_keyboard(),
-    )
-
-
-@router.callback_query(F.data == "broadcast_confirm")
-async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    if not is_admin(callback.from_user.id):
-        await callback.answer("⛔ Доступ запрещён.")
-        return
-    
-    await callback.answer("Отправляю рассылку...")
-    
-    data = await state.get_data()
-    text = data.get("broadcast_text", "")
-    image = data.get("broadcast_image")
-    recipients_type = data.get("recipients", "all")
-    user_ids = data.get("user_ids", [])
-    
-    logger.info(f"📢 BROADCAST CONFIRM: text_length={len(text)}, image={image}, recipients_type={recipients_type}, user_ids={user_ids}")
-    
-    # Получаем пользователей
-    if recipients_type == "all":
-        result = await db_session.execute(select(User))
-        users = result.scalars().all()
-        logger.info(f"📢 BROADCAST: all users count={len(users)}")
-    elif recipients_type == "pro":
-        result = await db_session.execute(
-            select(User).join(ProWhitelist, User.telegram_id == ProWhitelist.user_id)
-        )
-        users = result.scalars().all()
-        logger.info(f"📢 BROADCAST: pro users count={len(users)}")
-    elif recipients_type == "free":
-        result = await db_session.execute(
-            select(User).where(
-                ~User.telegram_id.in_(
-                    select(ProWhitelist.user_id)
-                )
-            )
-        )
-        users = result.scalars().all()
-        logger.info(f"📢 BROADCAST: free users count={len(users)}")
-    elif recipients_type == "ids" and user_ids:
-        users = []
-        for uid in user_ids:
-            result = await db_session.execute(
-                select(User).where(User.telegram_id == uid)
-            )
-            user = result.scalar_one_or_none()
-            if user:
-                users.append(user)
-        logger.info(f"📢 BROADCAST: ids users count={len(users)}")
-    else:
-        await callback.message.edit_text("❌ Не выбраны получатели.", reply_markup=get_admin_menu_keyboard())
-        return
-    
-    if not users:
-        await callback.message.edit_text("❌ Нет пользователей для рассылки.", reply_markup=get_admin_menu_keyboard())
-        return
-    
-    success_count = 0
-    fail_count = 0
-    
-    # Сохраняем рассылку в БД
-    broadcast = Broadcast(
-        title="Рассылка",
-        message=text,
-        image_url=image,
-        created_by=callback.from_user.id,
-        recipients_count=len(users),
-    )
-    db_session.add(broadcast)
-    await db_session.commit()
-    
-    logger.info(f"📢 BROADCAST: broadcast saved, id={broadcast.id}")
-    
-    # Отправляем каждому пользователю
-    for user in users:
-        try:
-            if image:
-                await callback.bot.send_photo(
-                    chat_id=user.telegram_id,
-                    photo=image,
-                    caption=text,
-                    parse_mode="HTML",
-                )
-            else:
-                await callback.bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=text,
-                    parse_mode="HTML",
-                )
-            success_count += 1
-        except Exception as e:
-            logger.error(f"📢 BROADCAST ERROR: failed to send to {user.telegram_id}: {e}")
-            fail_count += 1
-        await asyncio.sleep(0.05)
-    
-    # Обновляем статус рассылки
-    broadcast.is_sent = True
-    broadcast.sent_at = datetime.now()
-    await db_session.commit()
-    await state.clear()
-    
-    logger.info(f"📢 BROADCAST: finished, success={success_count}, fail={fail_count}, total={len(users)}")
-    
-    await callback.message.edit_text(
-        f"✅ Рассылка отправлена!\n\n"
-        f"Доставлено: {success_count}\n"
-        f"Ошибок: {fail_count}\n"
-        f"Всего: {len(users)}",
-        reply_markup=get_admin_menu_keyboard(),
-    )
-
-
-@router.callback_query(F.data == "broadcast_cancel")
-async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
-    await callback.answer("Рассылка отменена")
-    await state.clear()
-    await callback.message.edit_text(
-        "🛡️ Админ-панель\n\n"
-        "Выбери действие:",
-        reply_markup=get_admin_menu_keyboard(),
-    )
-
-
-# ==================== ПОДДЕРЖКА (для админа) ====================
+# ==================== ПОДДЕРЖКА ====================
 
 async def show_support_requests(callback: CallbackQuery, db_session: AsyncSession):
     try:
