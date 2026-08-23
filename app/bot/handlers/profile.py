@@ -151,9 +151,8 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         return
     
     if action == "back_to_menu":
-        # Возврат в главное меню
-        await callback.message.delete()
-        await callback.message.answer(
+        # Возврат в главное меню — просто редактируем сообщение
+        await callback.message.edit_text(
             "Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )
