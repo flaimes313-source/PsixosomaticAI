@@ -231,14 +231,18 @@ async def process_broadcast_recipients(message: types.Message, state: FSMContext
     
     if choice == "📨 Все пользователи":
         await state.update_data(recipients="all")
+        logger.info(f"📢 BROADCAST: recipients=all")
     elif choice == "📨 Только PRO":
         await state.update_data(recipients="pro")
+        logger.info(f"📢 BROADCAST: recipients=pro")
     elif choice == "📨 Только FREE":
         await state.update_data(recipients="free")
+        logger.info(f"📢 BROADCAST: recipients=free")
     elif choice.startswith("📨 По ID:"):
         ids_str = choice.replace("📨 По ID:", "").strip()
         user_ids = [int(x.strip()) for x in ids_str.split(",") if x.strip().isdigit()]
         await state.update_data(recipients="ids", user_ids=user_ids)
+        logger.info(f"📢 BROADCAST: recipients=ids, user_ids={user_ids}")
     else:
         await message.answer(
             "❌ Неверный выбор. Используй кнопки.",
@@ -264,6 +268,7 @@ async def process_broadcast_text(message: types.Message, state: FSMContext, db_s
     
     text = message.text.strip()
     await state.update_data(broadcast_text=text)
+    logger.info(f"📢 BROADCAST: text received, length={len(text)}")
     
     await message.answer(
         f"📢 Проверь сообщение\n\n"
@@ -290,6 +295,8 @@ async def process_broadcast_image(message: types.Message, state: FSMContext, db_
     data = await state.get_data()
     text = data.get("broadcast_text", "")
     
+    logger.info(f"📢 BROADCAST: image received, file_id={file_id}")
+    
     await message.answer_photo(
         photo=file_id,
         caption=f"📢 Проверь сообщение\n\n"
@@ -310,6 +317,8 @@ async def send_broadcast_without_image(message: types.Message, state: FSMContext
     text = data.get("broadcast_text", "")
     await state.update_data(broadcast_image=None)
     await state.set_state(AdminStates.waiting_for_broadcast_confirm)
+    
+    logger.info(f"📢 BROADCAST: no image, text length={len(text)}")
     
     await message.answer(
         f"📢 Проверь сообщение\n\n"
@@ -333,15 +342,19 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     recipients_type = data.get("recipients", "all")
     user_ids = data.get("user_ids", [])
     
+    logger.info(f"📢 BROADCAST CONFIRM: text_length={len(text)}, image={image}, recipients_type={recipients_type}, user_ids={user_ids}")
+    
     # Получаем пользователей
     if recipients_type == "all":
         result = await db_session.execute(select(User))
         users = result.scalars().all()
+        logger.info(f"📢 BROADCAST: all users count={len(users)}")
     elif recipients_type == "pro":
         result = await db_session.execute(
             select(User).join(ProWhitelist, User.telegram_id == ProWhitelist.user_id)
         )
         users = result.scalars().all()
+        logger.info(f"📢 BROADCAST: pro users count={len(users)}")
     elif recipients_type == "free":
         result = await db_session.execute(
             select(User).where(
@@ -351,6 +364,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
             )
         )
         users = result.scalars().all()
+        logger.info(f"📢 BROADCAST: free users count={len(users)}")
     elif recipients_type == "ids" and user_ids:
         users = []
         for uid in user_ids:
@@ -360,6 +374,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
             user = result.scalar_one_or_none()
             if user:
                 users.append(user)
+        logger.info(f"📢 BROADCAST: ids users count={len(users)}")
     else:
         await callback.message.edit_text("❌ Не выбраны получатели.", reply_markup=get_admin_menu_keyboard())
         return
@@ -382,6 +397,8 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     db_session.add(broadcast)
     await db_session.commit()
     
+    logger.info(f"📢 BROADCAST: broadcast saved, id={broadcast.id}")
+    
     # Отправляем каждому пользователю
     for user in users:
         try:
@@ -400,7 +417,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
                 )
             success_count += 1
         except Exception as e:
-            logger.error(f"Failed to send broadcast to {user.telegram_id}: {e}")
+            logger.error(f"📢 BROADCAST ERROR: failed to send to {user.telegram_id}: {e}")
             fail_count += 1
         await asyncio.sleep(0.05)
     
@@ -409,6 +426,8 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     broadcast.sent_at = datetime.now()
     await db_session.commit()
     await state.clear()
+    
+    logger.info(f"📢 BROADCAST: finished, success={success_count}, fail={fail_count}, total={len(users)}")
     
     await callback.message.edit_text(
         f"✅ Рассылка отправлена!\n\n"
