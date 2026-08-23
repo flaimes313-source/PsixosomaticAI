@@ -11,6 +11,7 @@ from app.bot.keyboards.pro import (
     get_pro_features_keyboard,
     get_pro_payment_keyboard,
     get_pro_success_keyboard,
+    get_pro_menu_keyboard_with_back_to_profile,  # ← НОВЫЙ ИМПОРТ
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.bot.states import ProStates
@@ -106,13 +107,13 @@ async def show_pro_edit(message: types.Message, state: FSMContext, db_session: A
     if callback:
         await callback.message.edit_text(
             text,
-            reply_markup=get_pro_menu_keyboard(is_pro),
+            reply_markup=get_pro_menu_keyboard_with_back_to_profile(is_pro),  # ← ИЗМЕНЕНО
             parse_mode="HTML",
         )
     else:
         await message.answer(
             text,
-            reply_markup=get_pro_menu_keyboard(is_pro),
+            reply_markup=get_pro_menu_keyboard_with_back_to_profile(is_pro),  # ← ИЗМЕНЕНО
             parse_mode="HTML",
         )
     

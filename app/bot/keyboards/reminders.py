@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 def get_reminders_menu_keyboard(enabled: bool) -> InlineKeyboardMarkup:
-    """Главное меню напоминаний."""
+    """Главное меню напоминаний (из главного меню)."""
     buttons = []
     
     if enabled:
@@ -22,6 +22,29 @@ def get_reminders_menu_keyboard(enabled: bool) -> InlineKeyboardMarkup:
     
     buttons.append(
         [InlineKeyboardButton(text="↩️ Назад", callback_data="reminders_close")]
+    )
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_reminders_menu_keyboard_with_back_to_profile(enabled: bool) -> InlineKeyboardMarkup:
+    """Главное меню напоминаний с возвратом в профиль."""
+    buttons = []
+    
+    if enabled:
+        buttons.append(
+            [InlineKeyboardButton(text="🔕 Отключить", callback_data="reminders_disable")]
+        )
+        buttons.append(
+            [InlineKeyboardButton(text="⚙️ Изменить время", callback_data="reminders_enable")]
+        )
+    else:
+        buttons.append(
+            [InlineKeyboardButton(text="✅ Включить", callback_data="reminders_enable")]
+        )
+    
+    buttons.append(
+        [InlineKeyboardButton(text="🔙 Назад в профиль", callback_data="reminders_back_to_profile")]
     )
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)

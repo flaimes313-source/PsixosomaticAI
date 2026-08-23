@@ -30,6 +30,31 @@ def get_pro_menu_keyboard(is_pro: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_pro_menu_keyboard_with_back_to_profile(is_pro: bool) -> InlineKeyboardMarkup:
+    """Главное меню PRO с возвратом в профиль."""
+    buttons = [
+        [InlineKeyboardButton(text="📋 Что входит в PRO", callback_data="pro_features")],
+    ]
+    
+    if is_pro:
+        buttons.append([
+            InlineKeyboardButton(text="💎 Продлить PRO", callback_data="pro_pay"),
+        ])
+        buttons.append([
+            InlineKeyboardButton(text="💳 Мои платежи", callback_data="pro_payments_history"),
+        ])
+    else:
+        buttons.append([
+            InlineKeyboardButton(text=f"💳 Оплатить {settings.PRO_PRICE_RUB} ₽", callback_data="pro_pay"),
+        ])
+    
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Назад в профиль", callback_data="pro_back_to_profile"),
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_pro_features_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура с подробностями PRO."""
     buttons = [

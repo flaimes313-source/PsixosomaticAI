@@ -15,6 +15,7 @@ from app.bot.keyboards.reminders import (
     get_time_preset_keyboard,
     get_days_keyboard,
     get_cancel_keyboard,
+    get_reminders_menu_keyboard_with_back_to_profile,  # ← НОВЫЙ ИМПОРТ
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.repositories.reminder import ReminderRepository
@@ -78,13 +79,13 @@ async def show_reminders_edit(message: types.Message, state: FSMContext, db_sess
     if callback:
         await callback.message.edit_text(
             text,
-            reply_markup=get_reminders_menu_keyboard(settings.enabled),
+            reply_markup=get_reminders_menu_keyboard_with_back_to_profile(settings.enabled),  # ← ИЗМЕНЕНО
             parse_mode="HTML",
         )
     else:
         await message.answer(
             text,
-            reply_markup=get_reminders_menu_keyboard(settings.enabled),
+            reply_markup=get_reminders_menu_keyboard_with_back_to_profile(settings.enabled),  # ← ИЗМЕНЕНО
             parse_mode="HTML",
         )
     
