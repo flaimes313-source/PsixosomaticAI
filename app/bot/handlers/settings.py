@@ -26,20 +26,34 @@ router = Router()
 
 @router.message(F.text == "⚙️ Настройки")
 async def show_settings(message: types.Message, state: FSMContext):
-    """Показывает меню настроек."""
+    """Показывает меню настроек (по умолчанию с возвратом в меню)."""
     await state.clear()
     
     await message.answer(
         "⚙️ <b>Настройки</b>\n\n"
         "Здесь вы можете управлять своими данными.\n\n"
         "Доступные действия:",
-        reply_markup=get_settings_keyboard(),
+        reply_markup=get_settings_keyboard(back_to="menu"),
         parse_mode="HTML",
     )
     logger.info(f"User opened settings: {message.from_user.id}")
 
 
-# ==================== ИСПРАВЛЕННЫЕ ОБРАБОТЧИКИ ====================
+async def show_settings_from_profile(message: types.Message, state: FSMContext):
+    """Показывает меню настроек с возвратом в профиль."""
+    await state.clear()
+    
+    await message.answer(
+        "⚙️ <b>Настройки</b>\n\n"
+        "Здесь вы можете управлять своими данными.\n\n"
+        "Доступные действия:",
+        reply_markup=get_settings_keyboard(back_to="profile"),
+        parse_mode="HTML",
+    )
+    logger.info(f"User opened settings from profile: {message.from_user.id}")
+
+
+# ==================== ОБРАБОТЧИКИ ====================
 
 @router.callback_query(F.data == "delete_all_data")
 async def confirm_delete_data(callback: CallbackQuery):
@@ -70,7 +84,7 @@ async def cancel_delete_data(callback: CallbackQuery):
     await callback.message.edit_text(
         "⚙️ <b>Настройки</b>\n\n"
         "Удаление данных отменено.",
-        reply_markup=get_settings_keyboard(),
+        reply_markup=get_settings_keyboard(back_to="menu"),
         parse_mode="HTML",
     )
 
@@ -173,6 +187,8 @@ async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession
         )
 
 
+# ==================== ВОЗВРАТ В ГЛАВНОЕ МЕНЮ ====================
+
 @router.callback_query(F.data == "back_to_menu_from_settings")
 async def back_to_menu_from_settings(callback: CallbackQuery, state: FSMContext):
     """Возврат в главное меню из настроек."""
@@ -184,3 +200,17 @@ async def back_to_menu_from_settings(callback: CallbackQuery, state: FSMContext)
         "Главное меню:",
         reply_markup=get_main_menu_keyboard(),
     )
+
+
+# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
+
+@router.callback_query(F.data == "settings_back_to_profile")
+async def back_to_profile_from_settings(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в профиль из настроек."""
+    await callback.answer()
+    await state.clear()
+    
+    from app.bot.handlers.profile import show_profile
+    
+    await callback.message.delete()
+    await show_profile(callback.message, state, db_session)

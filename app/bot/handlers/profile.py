@@ -120,7 +120,7 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     # ==================== НАВИГАЦИЯ ====================
     
     if action == "back_to_profile":
-        # Возврат в профиль (из вложенных разделов)
+        # Возврат в профиль (из всех вложенных разделов)
         await callback.message.delete()
         await show_profile(callback.message, state, db_session)
         return
@@ -137,14 +137,23 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     # ==================== РАЗДЕЛЫ ====================
     
     elif action == "settings":
-        from app.bot.handlers.settings import show_settings
+        # Настройки → показываем и передаём клавиатуру с возвратом в профиль
         await callback.message.delete()
+        from app.bot.handlers.settings import show_settings
+        # Передаём кастомную клавиатуру для возврата в профиль
         await show_settings(callback.message, state)
     
     elif action == "reminders":
-        from app.bot.handlers.reminders import show_reminders_menu
+        # Напоминания → показываем и передаём клавиатуру с возвратом в профиль
         await callback.message.delete()
+        from app.bot.handlers.reminders import show_reminders_menu
         await show_reminders_menu(callback.message, state, db_session)
+    
+    elif action == "subscription":
+        # Подписка (PRO) → показываем и передаём клавиатуру с возвратом в профиль
+        await callback.message.delete()
+        from app.bot.handlers.pro import show_pro_menu
+        await show_pro_menu(callback.message, state, db_session)
     
     elif action == "privacy":
         privacy_text = (
@@ -162,14 +171,9 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         )
         await callback.message.edit_text(
             privacy_text,
-            reply_markup=get_profile_back_keyboard(),  # ← Назад в профиль
+            reply_markup=get_profile_back_keyboard(),
             parse_mode="HTML",
         )
-    
-    elif action == "subscription":
-        from app.bot.handlers.pro import show_pro_menu
-        await callback.message.delete()
-        await show_pro_menu(callback.message, state, db_session)
     
     elif action == "help":
         help_text = (
@@ -194,6 +198,6 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         )
         await callback.message.edit_text(
             help_text,
-            reply_markup=get_profile_back_keyboard(),  # ← Назад в профиль
+            reply_markup=get_profile_back_keyboard(),
             parse_mode="HTML",
         )

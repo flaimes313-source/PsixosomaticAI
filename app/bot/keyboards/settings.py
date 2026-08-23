@@ -5,8 +5,13 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
-def get_settings_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для настроек."""
+def get_settings_keyboard(back_to: str = "menu") -> InlineKeyboardMarkup:
+    """
+    Клавиатура для настроек.
+    
+    Args:
+        back_to: Куда возвращаться - "menu" или "profile"
+    """
     builder = InlineKeyboardBuilder()
     
     builder.add(
@@ -15,12 +20,22 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
             callback_data="delete_all_data"
         )
     )
-    builder.add(
-        InlineKeyboardButton(
-            text="🔙 Назад в меню",
-            callback_data="back_to_menu_from_settings"
+    
+    # Кнопка "Назад" с динамическим callback
+    if back_to == "profile":
+        builder.add(
+            InlineKeyboardButton(
+                text="🔙 Назад в профиль",
+                callback_data="settings_back_to_profile"
+            )
         )
-    )
+    else:
+        builder.add(
+            InlineKeyboardButton(
+                text="🔙 Назад в меню",
+                callback_data="back_to_menu_from_settings"
+            )
+        )
     
     builder.adjust(1)
     
