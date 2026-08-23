@@ -1,6 +1,7 @@
 """
 Обработчик раздела поддержки.
 """
+from html import escape
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
@@ -88,18 +89,22 @@ async def process_support_question(message: types.Message, state: FSMContext, db
         user = user_result.scalar_one_or_none()
         user_name = user.first_name if user else "Неизвестно"
         
-        # Отправляем оповещение админу
+        # Экранируем все переменные
+        safe_user_id = str(message.from_user.id)
+        safe_user_name = escape(user_name)
+        safe_question = escape(question)
+        
+        # Отправляем оповещение админу (БЕЗ HTML-ТЕГОВ)
         await message.bot.send_message(
             chat_id=ADMIN_ID,
             text=(
-                f"📩 <b>НОВОЕ ОБРАЩЕНИЕ В ПОДДЕРЖКУ!</b>\n\n"
-                f"🆔 <b>#{support_request.id}</b>\n"
-                f"👤 Пользователь: <code>{message.from_user.id}</code>\n"
-                f"👤 Имя: {user_name}\n"
-                f"📝 Вопрос:\n{question}\n\n"
-                f"➡️ <b>Ответить:</b> /answer {support_request.id} <текст>"
+                f"📩 НОВОЕ ОБРАЩЕНИЕ В ПОДДЕРЖКУ!\n\n"
+                f"🆔 #{support_request.id}\n"
+                f"👤 Пользователь: {safe_user_id}\n"
+                f"👤 Имя: {safe_user_name}\n"
+                f"📝 Вопрос:\n{safe_question}\n\n"
+                f"➡️ Ответить: /answer {support_request.id} <текст ответа>"
             ),
-            parse_mode="HTML",
         )
         logger.info(f"✅ Admin notified about support request #{support_request.id}")
     except Exception as e:
