@@ -15,7 +15,7 @@ from app.bot.handlers import (
     start, menu, help, privacy, symptom, cancel, history, stress,
     settings as settings_handler, diary,
     dynamics_handler, reminders_handler, pro_handler,
-    admin_handler, support_handler  # ← ДОБАВЛЕНЫ admin_handler, support_handler
+    admin_handler, support_handler, profile_handler  # ← ДОБАВЛЕН profile_handler
 )
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
@@ -89,8 +89,9 @@ async def main() -> None:
     dp.include_router(dynamics_handler.router) # Сценарий "Моя динамика"
     dp.include_router(reminders_handler.router)# Сценарий "Напоминания"
     dp.include_router(pro_handler.router)      # Сценарий "PRO"
-    dp.include_router(admin_handler.router)    # ← НОВЫЙ: Админ-панель
-    dp.include_router(support_handler.router)  # ← НОВЫЙ: Поддержка
+    dp.include_router(admin_handler.router)    # Админ-панель
+    dp.include_router(support_handler.router)  # Поддержка
+    dp.include_router(profile_handler.router)  # ← НОВЫЙ: Профиль
     dp.include_router(cancel.router)           # Команда /cancel
     dp.include_router(history.router)          # История анализов
     dp.include_router(errors_router)           # Глобальный обработчик ошибок

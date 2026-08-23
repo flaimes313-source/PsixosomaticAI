@@ -5,5 +5,6 @@ from . import start, menu, help, privacy, symptom, cancel, history, stress, sett
 from . import dynamics as dynamics_handler
 from . import reminders as reminders_handler
 from . import pro as pro_handler
-from . import admin as admin_handler  # ← НОВОЕ
-from . import support as support_handler  # ← НОВОЕ
+from . import admin as admin_handler
+from . import support as support_handler
+from . import profile as profile_handler  # ← НОВОЕ
