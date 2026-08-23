@@ -1,7 +1,6 @@
 """
 Обработчик раздела поддержки.
 """
-from html import escape
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
@@ -20,11 +19,13 @@ from app.utils.logging import logger
 
 router = Router()
 
+# ID админа для оповещений
 ADMIN_ID = 462035571
 
 
 @router.message(F.text == "❓ Поддержка")
 async def show_support_menu(message: types.Message, state: FSMContext):
+    """Показывает меню поддержки."""
     await state.clear()
     
     await message.answer(
@@ -40,6 +41,7 @@ async def show_support_menu(message: types.Message, state: FSMContext):
 
 @router.message(SupportStates.waiting_for_question, F.text)
 async def process_support_question(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Обрабатывает вопрос пользователя и отправляет оповещение админу."""
     question = message.text.strip()
     
     if question.startswith('/'):
@@ -52,7 +54,7 @@ async def process_support_question(message: types.Message, state: FSMContext, db
         )
         return
     
-    # Сохраняем обращение
+    # Сохраняем обращение в БД
     support_request = SupportRequest(
         user_id=message.from_user.id,
         message=question,
@@ -61,8 +63,10 @@ async def process_support_question(message: types.Message, state: FSMContext, db
     db_session.add(support_request)
     await db_session.commit()
     
+    # Сохраняем ID обращения в FSM
     await state.update_data(request_id=support_request.id)
     
+    # Ответ пользователю
     await message.answer(
         "✅ <b>Ваше обращение отправлено!</b>\n\n"
         "Мы ответим вам в ближайшее время.\n"
@@ -77,31 +81,34 @@ async def process_support_question(message: types.Message, state: FSMContext, db
     
     # ==================== ОПОВЕЩЕНИЕ АДМИНА ====================
     try:
+        # Получаем имя пользователя
         user_result = await db_session.execute(
             select(User).where(User.telegram_id == message.from_user.id)
         )
         user = user_result.scalar_one_or_none()
         user_name = user.first_name if user else "Неизвестно"
         
+        # Отправляем оповещение админу
         await message.bot.send_message(
             chat_id=ADMIN_ID,
             text=(
-                f"📩 <b>Новое обращение в поддержку!</b>\n\n"
+                f"📩 <b>НОВОЕ ОБРАЩЕНИЕ В ПОДДЕРЖКУ!</b>\n\n"
                 f"🆔 <b>#{support_request.id}</b>\n"
                 f"👤 Пользователь: <code>{message.from_user.id}</code>\n"
-                f"👤 Имя: {escape(user_name)}\n"
-                f"📝 Вопрос:\n{escape(question)}\n\n"
-                f"Ответ: /answer {support_request.id} <текст>"
+                f"👤 Имя: {user_name}\n"
+                f"📝 Вопрос:\n{question}\n\n"
+                f"➡️ <b>Ответить:</b> /answer {support_request.id} <текст>"
             ),
             parse_mode="HTML",
         )
-        logger.info(f"Admin notified about support request #{support_request.id}")
+        logger.info(f"✅ Admin notified about support request #{support_request.id}")
     except Exception as e:
-        logger.error(f"Failed to notify admin: {e}")
+        logger.error(f"❌ Failed to notify admin: {e}")
 
 
 @router.message(SupportStates.waiting_for_question)
 async def process_support_invalid(message: types.Message, state: FSMContext):
+    """Невалидный ввод в поддержке."""
     await message.answer(
         "Пожалуйста, напиши свой вопрос текстом.",
         reply_markup=get_support_cancel_keyboard(),
@@ -110,6 +117,7 @@ async def process_support_invalid(message: types.Message, state: FSMContext):
 
 @router.callback_query(F.data == "support_cancel")
 async def cancel_support(callback: CallbackQuery, state: FSMContext):
+    """Отмена обращения в поддержку."""
     await callback.answer("Отменяем...")
     await state.clear()
     
