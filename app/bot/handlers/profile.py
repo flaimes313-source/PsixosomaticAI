@@ -143,13 +143,13 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     
     elif action == "reminders":
         await callback.message.delete()
-        from app.bot.handlers.reminders import show_reminders_edit
-        await show_reminders_edit(callback.message, state, db_session, callback)
+        from app.bot.handlers.reminders import show_reminders_menu
+        await show_reminders_menu(callback.message, state, db_session)
     
     elif action == "subscription":
         await callback.message.delete()
-        from app.bot.handlers.pro import show_pro_edit
-        await show_pro_edit(callback.message, state, db_session, callback)
+        from app.bot.handlers.pro import show_pro_menu
+        await show_pro_menu(callback.message, state, db_session)
     
     elif action == "privacy":
         privacy_text = (
