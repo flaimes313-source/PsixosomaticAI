@@ -72,7 +72,6 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
         await show_whitelist(callback, db_session)
     
     elif action == "broadcast":
-        # Выбор получателей через inline-кнопки (без FSM)
         await callback.message.edit_text(
             "📢 Создать рассылку\n\n"
             "Выбери получателей:",
@@ -86,11 +85,11 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
         await show_stats(callback, db_session)
 
 
-# ==================== ОБРАБОТЧИКИ ДЛЯ КНОПОК РАССЫЛКИ (ЧЕРЕЗ CALLBACK) ====================
+# ==================== ОБРАБОТЧИКИ ДЛЯ КНОПОК РАССЫЛКИ ====================
 
 @router.callback_query(F.data.startswith("broadcast_recipients_"))
 async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Выбор получателей рассылки через callback."""
+    """Выбор получателей рассылки."""
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Доступ запрещён.")
         return
@@ -107,6 +106,7 @@ async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, d
         "all": "Все пользователи",
         "pro": "Только PRO",
         "free": "Только FREE",
+        "ids": "По ID",
     }
     name = recipients_names.get(recipients_type, recipients_type)
     
@@ -158,7 +158,6 @@ async def process_broadcast_image(message: types.Message, state: FSMContext, db_
     text = data.get("broadcast_text", "")
     recipients_type = data.get("recipients", "all")
     
-    # Показываем предпросмотр
     await message.answer_photo(
         photo=file_id,
         caption=f"📢 Проверь сообщение\n\n"
@@ -170,9 +169,37 @@ async def process_broadcast_image(message: types.Message, state: FSMContext, db_
     await state.set_state(AdminStates.waiting_for_broadcast_confirm)
 
 
+# ==================== НОВЫЙ ОБРАБОТЧИК ДЛЯ "ОТПРАВИТЬ БЕЗ КАРТИНКИ" ====================
+
+@router.callback_query(F.data == "broadcast_skip_image")
+async def skip_image_and_show_preview(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Обработчик для кнопки 'Отправить без картинки'."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён.")
+        return
+    
+    await callback.answer()
+    
+    data = await state.get_data()
+    text = data.get("broadcast_text", "")
+    recipients_type = data.get("recipients", "all")
+    
+    await state.update_data(broadcast_image=None)
+    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
+    
+    await callback.message.edit_text(
+        f"📢 Проверь сообщение\n\n"
+        f"Получатели: {recipients_type}\n"
+        f"Текст:\n{text}\n\n"
+        "Всё верно? Нажми кнопку ниже, чтобы отправить.",
+        reply_markup=get_confirm_broadcast_keyboard(),
+    )
+    logger.info(f"📢 Broadcast without image, recipients={recipients_type}")
+
+
 @router.message(AdminStates.waiting_for_broadcast_image, F.text == "📨 Отправить без картинки")
-async def send_broadcast_without_image(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Отправляет рассылку без картинки."""
+async def send_broadcast_without_image_text(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Отправляет рассылку без картинки (через текст)."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         await state.clear()
@@ -183,8 +210,8 @@ async def send_broadcast_without_image(message: types.Message, state: FSMContext
     recipients_type = data.get("recipients", "all")
     
     await state.update_data(broadcast_image=None)
+    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
     
-    # Показываем предпросмотр
     await message.answer(
         f"📢 Проверь сообщение\n\n"
         f"Получатели: {recipients_type}\n"
@@ -192,7 +219,6 @@ async def send_broadcast_without_image(message: types.Message, state: FSMContext
         "Всё верно? Нажми кнопку ниже, чтобы отправить.",
         reply_markup=get_confirm_broadcast_keyboard(),
     )
-    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
 
 
 @router.callback_query(F.data == "broadcast_confirm")
@@ -232,6 +258,13 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
         )
         users = result.scalars().all()
         logger.info(f"📢 Free users: {len(users)}")
+    elif recipients_type == "ids":
+        # Для "По ID" нужно будет ввести ID вручную, пока пропускаем
+        await callback.message.edit_text(
+            "❌ Функция 'По ID' пока не реализована. Выбери другую группу.",
+            reply_markup=get_broadcast_recipients_keyboard(),
+        )
+        return
     else:
         await callback.message.edit_text("❌ Не выбраны получатели.", reply_markup=get_admin_menu_keyboard())
         return
