@@ -255,6 +255,8 @@ async def process_broadcast_image(message: types.Message, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_broadcast_confirm)
 
 
+# ==================== ИСПРАВЛЕННЫЙ ОБРАБОТЧИК "ОТПРАВИТЬ БЕЗ КАРТИНКИ" ====================
+
 @router.message(AdminStates.waiting_for_broadcast_image, F.text == "📨 Отправить без картинки")
 async def send_broadcast_without_image_text(message: types.Message, state: FSMContext):
     """Отправляет рассылку без картинки (через текст)."""
@@ -269,6 +271,7 @@ async def send_broadcast_without_image_text(message: types.Message, state: FSMCo
     user_ids = data.get("user_ids", [])
     
     await state.update_data(broadcast_image=None)
+    await state.set_state(AdminStates.waiting_for_broadcast_confirm)  # ← ВАЖНО!
     
     # Формируем информацию о получателях
     if recipients_type == "ids":
@@ -288,8 +291,50 @@ async def send_broadcast_without_image_text(message: types.Message, state: FSMCo
         "Всё верно? Нажми кнопку ниже, чтобы отправить.",
         reply_markup=get_confirm_broadcast_keyboard(),
     )
-    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
+    logger.info(f"📢 Broadcast without image via text, recipients={recipients_type}")
 
+
+# ==================== ОБРАБОТЧИК ДЛЯ КНОПКИ "SKIP IMAGE" (callback) ====================
+
+@router.callback_query(F.data == "broadcast_skip_image")
+async def skip_image_and_show_preview(callback: CallbackQuery, state: FSMContext):
+    """Обработчик для кнопки 'Отправить без картинки' (callback)."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔ Доступ запрещён.")
+        return
+    
+    await callback.answer()
+    
+    data = await state.get_data()
+    text = data.get("broadcast_text", "")
+    recipients_type = data.get("recipients", "all")
+    user_ids = data.get("user_ids", [])
+    
+    await state.update_data(broadcast_image=None)
+    await state.set_state(AdminStates.waiting_for_broadcast_confirm)  # ← ВАЖНО!
+    
+    # Формируем информацию о получателях
+    if recipients_type == "ids":
+        recipients_info = f"По ID ({len(user_ids)} пользователей)"
+    else:
+        recipients_names = {
+            "all": "Все пользователи",
+            "pro": "Только PRO",
+            "free": "Только FREE",
+        }
+        recipients_info = recipients_names.get(recipients_type, recipients_type)
+    
+    await callback.message.edit_text(
+        f"📢 Проверь сообщение\n\n"
+        f"Получатели: {recipients_info}\n"
+        f"Текст:\n{text}\n\n"
+        "Всё верно? Нажми кнопку ниже, чтобы отправить.",
+        reply_markup=get_confirm_broadcast_keyboard(),
+    )
+    logger.info(f"📢 Broadcast without image via callback, recipients={recipients_type}")
+
+
+# ==================== ПОДТВЕРЖДЕНИЕ ОТПРАВКИ ====================
 
 @router.callback_query(F.data == "broadcast_confirm")
 async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
