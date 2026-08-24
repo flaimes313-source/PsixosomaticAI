@@ -30,13 +30,11 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     
     user_id = message.from_user.id
     
-    # Получаем данные пользователя
     result = await db_session.execute(
         select(User).where(User.telegram_id == user_id)
     )
     user = result.scalar_one_or_none()
     
-    # Если пользователь не зарегистрирован — создаём его автоматически
     if not user:
         from app.db.repositories.user import UserRepository
         user_repo = UserRepository(db_session)
@@ -51,14 +49,12 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
         await db_session.commit()
         await db_session.refresh(user)
     
-    # Получаем информацию о подписке
     access_service = AccessService(db_session)
     subscription_service = SubscriptionService(db_session)
     
     is_pro = await access_service.is_pro(user_id)
     plan_info = await subscription_service.get_subscription_info(user_id)
     
-    # Определяем статус подписки
     if is_pro:
         days_left = plan_info.get("days_left")
         if days_left is not None and days_left > 0:
@@ -68,7 +64,6 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     else:
         plan_status = "🔓 Демо (FREE)"
     
-    # Получаем настройки напоминаний
     reminder_result = await db_session.execute(
         select(ReminderSettings).where(ReminderSettings.user_id == user_id)
     )
@@ -79,7 +74,6 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     else:
         reminder_status = "❌ Выключены"
     
-    # Формируем текст профиля
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Неизвестно"
     
     try:
@@ -120,13 +114,11 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     # ==================== НАВИГАЦИЯ ====================
     
     if action == "back_to_profile":
-        # Возврат в профиль
         await callback.message.delete()
         await show_profile(callback.message, state, db_session)
         return
     
     if action == "back_to_menu":
-        # Возврат в главное меню
         await callback.message.delete()
         await callback.message.answer(
             "Главное меню:",
@@ -150,6 +142,11 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         await callback.message.delete()
         from app.bot.handlers.pro import show_pro_from_profile
         await show_pro_from_profile(callback.message, state, db_session)
+    
+    elif action == "history":  # ← НОВЫЙ ОБРАБОТЧИК
+        await callback.message.delete()
+        from app.bot.handlers.history import show_history
+        await show_history(callback.message, db_session)
     
     elif action == "privacy":
         privacy_text = (
@@ -181,7 +178,7 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
             "Ведите записи о состоянии.\n\n"
             "📊 Моя динамика\n"
             "Анализирует ваши записи за период.\n\n"
-            "📋 История анализов\n"
+            "📋 История сессий\n"
             "Все предыдущие разборы симптомов.\n\n"
             "⭐ PRO\n"
             "Расширенные возможности.\n\n"
@@ -199,11 +196,10 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         )
 
 
-# ==================== ОБРАБОТЧИКИ ВОЗВРАТА ИЗ ДРУГИХ РАЗДЕЛОВ ====================
+# ==================== ОБРАБОТЧИКИ ВОЗВРАТА ====================
 
 @router.callback_query(F.data == "reminders_back_to_profile")
 async def reminders_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Возврат в профиль из напоминаний."""
     await callback.answer()
     await state.clear()
     await callback.message.delete()
@@ -212,7 +208,6 @@ async def reminders_back_to_profile(callback: CallbackQuery, state: FSMContext, 
 
 @router.callback_query(F.data == "settings_back_to_profile")
 async def settings_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Возврат в профиль из настроек."""
     await callback.answer()
     await state.clear()
     await callback.message.delete()
@@ -221,7 +216,6 @@ async def settings_back_to_profile(callback: CallbackQuery, state: FSMContext, d
 
 @router.callback_query(F.data == "pro_back_to_profile")
 async def pro_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Возврат в профиль из PRO."""
     await callback.answer()
     await state.clear()
     await callback.message.delete()
@@ -230,7 +224,6 @@ async def pro_back_to_profile(callback: CallbackQuery, state: FSMContext, db_ses
 
 @router.callback_query(F.data == "privacy_back_to_profile")
 async def privacy_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Возврат в профиль из Конфиденциальности."""
     await callback.answer()
     await state.clear()
     await callback.message.delete()
@@ -239,7 +232,6 @@ async def privacy_back_to_profile(callback: CallbackQuery, state: FSMContext, db
 
 @router.callback_query(F.data == "help_back_to_profile")
 async def help_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Возврат в профиль из Помощи."""
     await callback.answer()
     await state.clear()
     await callback.message.delete()

@@ -10,17 +10,26 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     
     builder.add(
-        KeyboardButton(text="🧠 Разобрать симптом"),
+        # === ПСИХОБЛОК ===
+        KeyboardButton(text="🤔 Что я чувствую в теле?"),
+        KeyboardButton(text="💡 Помогите разобраться"),
+        
+        # === ИНФО ===
+        KeyboardButton(text="📖 Как это работает?"),
+        
+        # === КОММЕРЦИЯ ===
+        KeyboardButton(text="⭐ PRO"),
+        
+        # === ИНСТРУМЕНТЫ ===
         KeyboardButton(text="📔 Дневник"),
         KeyboardButton(text="📊 Моя динамика"),
-        KeyboardButton(text="📋 История анализов"),
-        KeyboardButton(text="⭐ PRO"),
+        
+        # === ПРОФИЛЬ И ПОДДЕРЖКА ===
         KeyboardButton(text="👤 Профиль"),
-        KeyboardButton(text="❓ Поддержка"),  # ← ДОБАВЛЕНО
-        KeyboardButton(text="🔐 Конфиденциальность"),
+        KeyboardButton(text="❓ Поддержка"),
     )
     
-    # Располагаем кнопки по 2 в ряд (8 кнопок → 4 ряда)
+    # 8 кнопок → 4 ряда (2,2,2,2)
     builder.adjust(2, 2, 2, 2)
     
     return builder.as_markup(

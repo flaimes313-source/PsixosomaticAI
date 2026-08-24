@@ -16,6 +16,9 @@ def get_profile_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔐 Конфиденциальность", callback_data="profile_privacy"),
         ],
         [
+            InlineKeyboardButton(text="📋 История сессий", callback_data="profile_history"),
+        ],
+        [
             InlineKeyboardButton(text="❓ Помощь", callback_data="profile_help"),
         ],
         [
@@ -26,7 +29,7 @@ def get_profile_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 def get_profile_back_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура с кнопкой возврата в профиль (для всех вложенных разделов)."""
+    """Клавиатура с кнопкой возврата в профиль."""
     buttons = [
         [InlineKeyboardButton(text="🔙 Назад в профиль", callback_data="profile_back_to_profile")],
     ]

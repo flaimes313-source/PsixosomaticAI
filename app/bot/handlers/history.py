@@ -1,8 +1,9 @@
 """
-Обработчик для просмотра истории анализов и уточнений.
+Обработчик для просмотра истории сессий и уточнений.
 """
 from aiogram import Router, types, F
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext  # ← ДОБАВЛЕНО
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -18,13 +19,12 @@ router = Router()
 
 
 def get_analysis_buttons(analyses: list, user_tz) -> InlineKeyboardMarkup:
-    """Создает inline-кнопки для списка анализов."""
+    """Создает inline-кнопки для списка сессий."""
     buttons = []
     
     for analysis in analyses:
         symptom_preview = analysis.symptom[:30] + "..." if len(analysis.symptom) > 30 else analysis.symptom
         
-        # Конвертируем время в часовой пояс пользователя
         try:
             created_at_local = analysis.created_at.astimezone(user_tz)
             date_preview = created_at_local.strftime("%d.%m")
@@ -44,20 +44,19 @@ def get_analysis_buttons(analyses: list, user_tz) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🗑️ Очистить историю", callback_data="clear_history"),
     ])
     buttons.append([
-        InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_menu"),
+        InlineKeyboardButton(text="🔙 Назад в профиль", callback_data="back_to_profile_from_history"),
     ])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 @router.message(Command("history"))
-@router.message(F.text == "📋 История анализов")  # ← ИСПРАВЛЕНО: точное совпадение
+@router.message(F.text == "📋 История анализов")
 async def show_history(message: types.Message, db_session: AsyncSession):
-    """Показывает историю анализов пользователя."""
+    """Показывает историю сессий пользователя."""
     telegram_id = message.from_user.id
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -70,32 +69,36 @@ async def show_history(message: types.Message, db_session: AsyncSession):
             )
             return
         
-        # Определяем часовой пояс пользователя
         try:
             user_tz = ZoneInfo(user.timezone or "UTC")
         except:
             user_tz = ZoneInfo("UTC")
         
-        # Получаем анализы — ИСПРАВЛЕНО
         analysis_repo = AnalysisRepository(db_session)
-        analyses = await analysis_repo.get_user_analyses(user.id, limit=10)  # ← ИСПРАВЛЕНО
+        analyses = await analysis_repo.get_user_analyses(user.id, limit=10)
         
         if not analyses:
             await message.answer(
-                "📋 У вас пока нет сохраненных анализов.\n\nНажмите 🧠 Разобрать симптом",
+                "📋 У вас пока нет сохраненных сессий.\n\n"
+                "Нажмите 🤔 Что я чувствую в теле? или 💡 Помогите разобраться",
                 reply_markup=get_main_menu_keyboard(),
             )
             return
         
-        total = await analysis_repo.get_user_analyses_count(user.id)  # ← ИСПРАВЛЕНО
+        total = await analysis_repo.get_user_analyses_count(user.id)
         
         history_text = (
-            f"📋 Ваша история (последние {len(analyses)} из {total}):\n\n"
-            "Нажмите на анализ для просмотра:"
+            f"📋 <b>История сессий</b>\n\n"
+            f"Последние {len(analyses)} из {total}:\n\n"
+            "Нажмите на сессию для просмотра:"
         )
         
         keyboard = get_analysis_buttons(analyses, user_tz)
-        await message.answer(history_text, reply_markup=keyboard)
+        await message.answer(
+            history_text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
         
     except Exception as e:
         logger.error(f"Error in show_history: {e}")
@@ -107,13 +110,12 @@ async def show_history(message: types.Message, db_session: AsyncSession):
 
 @router.callback_query(F.data.startswith("analysis_view_"))
 async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession):
-    """Показывает полный анализ и уточнения."""
+    """Показывает полную сессию и уточнения."""
     await callback.answer()
     
     analysis_id = int(callback.data.split("_")[2])
     
     try:
-        # Проверяем пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
@@ -126,28 +128,24 @@ async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession
             )
             return
         
-        # Определяем часовой пояс пользователя
         try:
             user_tz = ZoneInfo(user.timezone or "UTC")
         except:
             user_tz = ZoneInfo("UTC")
         
-        # Получаем анализ
         analysis_repo = AnalysisRepository(db_session)
         analysis = await analysis_repo.get_by_id(analysis_id)
         
         if not analysis or analysis.user_id != user.id:
             await callback.message.edit_text(
-                "❌ Анализ не найден или доступ запрещен.",
+                "❌ Сессия не найдена или доступ запрещен.",
                 reply_markup=None,
             )
             return
         
-        # Получаем уточнения для этого анализа
         clarification_repo = ClarificationRepository(db_session)
         clarifications = await clarification_repo.get_by_analysis_id(analysis_id)
         
-        # Конвертируем время
         try:
             created_at_local = analysis.created_at.astimezone(user_tz)
             date = created_at_local.strftime("%d.%m.%Y %H:%M")
@@ -155,7 +153,7 @@ async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession
             date = analysis.created_at.strftime("%d.%m.%Y %H:%M")
         
         detail_text = (
-            f"🧠 Полный анализ #{analysis.id}\n"
+            f"🧠 <b>Сессия #{analysis.id}</b>\n"
             f"📅 {date}\n\n"
             f"🩺 Симптом: {analysis.symptom}\n"
             f"⏱ Длительность: {analysis.duration}\n"
@@ -165,7 +163,6 @@ async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession
             f"{analysis.analysis}\n\n"
         )
         
-        # Добавляем уточнения, если они есть
         if clarifications:
             detail_text += (
                 "━━━━━━━━━━━━━━━━━━━\n"
@@ -205,23 +202,23 @@ async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession
         await callback.message.edit_text(
             detail_text,
             reply_markup=back_keyboard,
+            parse_mode="HTML",
         )
         
     except Exception as e:
         logger.error(f"Error in show_analysis_detail: {e}")
         await callback.message.edit_text(
-            "❌ Ошибка загрузки анализа.",
+            "❌ Ошибка загрузки сессии.",
             reply_markup=None,
         )
 
 
 @router.callback_query(F.data == "back_to_history")
 async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession):
-    """Возврат к списку анализов."""
+    """Возврат к списку сессий."""
     await callback.answer()
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
@@ -234,32 +231,35 @@ async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession
             )
             return
         
-        # Определяем часовой пояс пользователя
         try:
             user_tz = ZoneInfo(user.timezone or "UTC")
         except:
             user_tz = ZoneInfo("UTC")
         
-        # Получаем анализы
         analysis_repo = AnalysisRepository(db_session)
-        analyses = await analysis_repo.get_user_analyses(user.id, limit=10)  # ← ИСПРАВЛЕНО
+        analyses = await analysis_repo.get_user_analyses(user.id, limit=10)
         
         if not analyses:
             await callback.message.edit_text(
-                "📋 У вас пока нет сохраненных анализов.",
+                "📋 У вас пока нет сохраненных сессий.",
                 reply_markup=None,
             )
             return
         
-        total = await analysis_repo.get_user_analyses_count(user.id)  # ← ИСПРАВЛЕНО
+        total = await analysis_repo.get_user_analyses_count(user.id)
         
         history_text = (
-            f"📋 Ваша история (последние {len(analyses)} из {total}):\n\n"
-            "Нажмите на анализ для просмотра:"
+            f"📋 <b>История сессий</b>\n\n"
+            f"Последние {len(analyses)} из {total}:\n\n"
+            "Нажмите на сессию для просмотра:"
         )
         
         keyboard = get_analysis_buttons(analyses, user_tz)
-        await callback.message.edit_text(history_text, reply_markup=keyboard)
+        await callback.message.edit_text(
+            history_text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
         
     except Exception as e:
         logger.error(f"Error in back_to_history: {e}")
@@ -271,11 +271,10 @@ async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession
 
 @router.callback_query(F.data == "history_refresh")
 async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession):
-    """Обновление списка анализов."""
+    """Обновление списка сессий."""
     await callback.answer("Обновляю...")
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
@@ -288,32 +287,35 @@ async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession
             )
             return
         
-        # Определяем часовой пояс пользователя
         try:
             user_tz = ZoneInfo(user.timezone or "UTC")
         except:
             user_tz = ZoneInfo("UTC")
         
-        # Получаем анализы
         analysis_repo = AnalysisRepository(db_session)
-        analyses = await analysis_repo.get_user_analyses(user.id, limit=10)  # ← ИСПРАВЛЕНО
+        analyses = await analysis_repo.get_user_analyses(user.id, limit=10)
         
         if not analyses:
             await callback.message.edit_text(
-                "📋 У вас пока нет сохраненных анализов.",
+                "📋 У вас пока нет сохраненных сессий.",
                 reply_markup=None,
             )
             return
         
-        total = await analysis_repo.get_user_analyses_count(user.id)  # ← ИСПРАВЛЕНО
+        total = await analysis_repo.get_user_analyses_count(user.id)
         
         history_text = (
-            f"📋 Ваша история (последние {len(analyses)} из {total}):\n\n"
-            "Нажмите на анализ для просмотра:"
+            f"📋 <b>История сессий</b>\n\n"
+            f"Последние {len(analyses)} из {total}:\n\n"
+            "Нажмите на сессию для просмотра:"
         )
         
         keyboard = get_analysis_buttons(analyses, user_tz)
-        await callback.message.edit_text(history_text, reply_markup=keyboard)
+        await callback.message.edit_text(
+            history_text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
         
     except Exception as e:
         logger.error(f"Error in refresh_history: {e}")
@@ -346,9 +348,10 @@ async def confirm_clear_history(callback: CallbackQuery):
     )
     
     await callback.message.edit_text(
-        "⚠️ Вы уверены, что хотите удалить ВСЮ историю анализов?\n\n"
+        "⚠️ Вы уверены, что хотите удалить ВСЮ историю сессий?\n\n"
         "Это действие нельзя отменить. Все анализы и уточнения будут удалены.",
         reply_markup=confirm_keyboard,
+        parse_mode="HTML",
     )
 
 
@@ -358,7 +361,6 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
     await callback.answer("Удаляю историю...")
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
@@ -371,35 +373,32 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
             )
             return
         
-        # Получаем все анализы пользователя
         analysis_repo = AnalysisRepository(db_session)
-        analyses = await analysis_repo.get_user_analyses(user.id, limit=1000)  # ← ИСПРАВЛЕНО
+        analyses = await analysis_repo.get_user_analyses(user.id, limit=1000)
         
         count = len(analyses)
         
         if count == 0:
             await callback.message.edit_text(
-                "📋 У вас нет анализов для удаления.",
+                "📋 У вас нет сессий для удаления.",
                 reply_markup=None,
             )
             return
         
-        # Удаляем все анализы (уточнения удалятся каскадно)
         for analysis in analyses:
             await db_session.delete(analysis)
         
         await db_session.commit()
         
-        # Показываем сообщение об успехе
         await callback.message.edit_text(
-            f"✅ Удалено {count} анализов.\n\n"
+            f"✅ Удалено {count} сессий.\n\n"
             "Ваша история очищена.",
             reply_markup=None,
+            parse_mode="HTML",
         )
         
-        # Возвращаемся в главное меню
         await callback.message.answer(
-            "Главное меню:",
+            "👤 Профиль",
             reply_markup=get_main_menu_keyboard(),
         )
         
@@ -415,6 +414,19 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
             "Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )
+
+
+# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
+
+@router.callback_query(F.data == "back_to_profile_from_history")
+async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в профиль из истории сессий."""
+    await callback.answer()
+    await state.clear()
+    
+    from app.bot.handlers.profile import show_profile
+    await callback.message.delete()
+    await show_profile(callback.message, state, db_session)
 
 
 @router.callback_query(F.data == "back_to_menu")

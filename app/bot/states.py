@@ -78,7 +78,7 @@ class AdminStates(StatesGroup):
     Состояния для админ-панели.
     """
     waiting_for_broadcast_recipients = State()  # Выбор получателей
-    waiting_for_broadcast_ids = State()         # ← ДОБАВЛЕНО: Ожидание ввода ID
+    waiting_for_broadcast_ids = State()         # Ожидание ввода ID
     waiting_for_broadcast_text = State()        # Ожидание текста для рассылки
     waiting_for_broadcast_image = State()       # Ожидание картинки для рассылки
     waiting_for_broadcast_confirm = State()     # Подтверждение рассылки
@@ -91,3 +91,21 @@ class SupportStates(StatesGroup):
     Состояния для раздела поддержки.
     """
     waiting_for_question = State()         # Ожидание вопроса от пользователя
+
+
+# ==================== ВЫБОР СИМПТОМА (НОВОЕ) ====================
+
+class SymptomChoiceStates(StatesGroup):
+    """
+    Состояния для выбора симптома из списка.
+    """
+    choosing_category = State()           # Выбор категории симптома
+    choosing_symptom = State()            # Выбор конкретного симптома из категории
+    waiting_for_custom_symptom = State()  # Свободный ввод симптома
+    # ==================== ЭКСПРЕСС-ДИАГНОСТИКА (НОВОЕ) ====================
+
+class QuickStartStates(StatesGroup):
+    """
+    Состояния для экспресс-диагностики "Помогите разобраться".
+    """
+    waiting_for_description = State()  # Ожидание описания состояния
