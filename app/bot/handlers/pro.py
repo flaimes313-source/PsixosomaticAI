@@ -159,8 +159,10 @@ async def start_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
         return
     
-    # Создаём платёж
-    payment_service = PaymentService(db_session)
+    # ==================== ИСПРАВЛЕНО: передаём bot ====================
+    payment_service = PaymentService(db_session, callback.bot)  # ← ДОБАВЛЕН bot
+    # ================================================================
+    
     result = await payment_service.create_pro_payment(user_id)
     
     if not result.get("success"):
@@ -211,7 +213,9 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
         return
     
-    payment_service = PaymentService(db_session)
+    # ==================== ИСПРАВЛЕНО: передаём bot ====================
+    payment_service = PaymentService(db_session, callback.bot)  # ← ДОБАВЛЕН bot
+    # ================================================================
     
     # Получаем платеж из БД
     payment = await payment_service.payment_repo.get_by_id(payment_id, callback.from_user.id)
@@ -360,7 +364,10 @@ async def show_payments_history(callback: CallbackQuery, db_session: AsyncSessio
     await callback.answer()
     
     user_id = callback.from_user.id
-    payment_service = PaymentService(db_session)
+    # ==================== ИСПРАВЛЕНО: передаём bot ====================
+    payment_service = PaymentService(db_session, callback.bot)  # ← ДОБАВЛЕН bot
+    # ================================================================
+    
     payments = await payment_service.get_user_payments(user_id, limit=10)
     
     if not payments:

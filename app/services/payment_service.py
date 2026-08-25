@@ -22,12 +22,13 @@ from app.config import settings
 class PaymentService:
     """Сервис для управления платежами."""
 
-    def __init__(self, db_session: AsyncSession):
+    def __init__(self, db_session: AsyncSession, bot=None):  # ← ДОБАВЛЕН bot
         self.db_session = db_session
         self.payment_repo = PaymentRepository(db_session)
         self.subscription_repo = SubscriptionRepository(db_session)
         self.yookassa = YooKassaService()
         self.access_service = AccessService(db_session)
+        self.bot = bot  # ← СОХРАНЯЕМ bot
 
     async def create_pro_payment(
         self,
@@ -36,7 +37,6 @@ class PaymentService:
         """
         Создать платёж для PRO.
         """
-        # Проверяем, что пользователь существует
         result = await self.db_session.execute(
             select(User).where(User.telegram_id == user_id)
         )
@@ -44,18 +44,15 @@ class PaymentService:
         if not user:
             return {"success": False, "error": "Пользователь не найден"}
 
-        # Проверяем текущую подписку
         subscription = await self.subscription_repo.get_by_user_id(user_id)
         
         amount = Decimal(str(settings.PRO_PRICE_RUB))
         currency = "RUB"
         duration_days = settings.PRO_DURATION_DAYS
 
-        # Создаём ключ идемпотентности
         import uuid
         idempotence_key = str(uuid.uuid4())
 
-        # Создаём платеж в БД
         payment = await self.payment_repo.create(
             user_id=user_id,
             amount=amount,
@@ -73,7 +70,6 @@ class PaymentService:
             },
         )
 
-        # Создаём платеж в ЮKassa
         result = await self.yookassa.create_payment(
             amount=amount,
             currency=currency,
@@ -89,14 +85,12 @@ class PaymentService:
         )
 
         if not result.get("success"):
-            # Отмечаем платеж как неудачный
             await self.payment_repo.mark_failed(payment.id)
             return {
                 "success": False,
                 "error": result.get("error", "Ошибка при создании платежа"),
             }
 
-        # Обновляем платеж с provider_payment_id
         provider_payment_id = result.get("payment_id")
         await self.payment_repo.update_status(
             payment.id,
@@ -122,18 +116,15 @@ class PaymentService:
         """
         Обработка успешного платежа от webhook.
         """
-        # Находим платеж в БД
         payment = await self.payment_repo.get_by_provider_payment_id(provider_payment_id)
         if not payment:
             logger.warning(f"Payment not found: {provider_payment_id}")
             return {"success": False, "error": "Payment not found"}
 
-        # Защита от повторной обработки
         if payment.status == PaymentStatus.SUCCEEDED:
             logger.info(f"Payment already processed: {provider_payment_id}")
             return {"success": True, "already_processed": True}
 
-        # Проверяем платеж в ЮKassa
         yk_result = await self.yookassa.get_payment(provider_payment_id)
         if not yk_result.get("success"):
             logger.error(f"Failed to get payment from YooKassa: {provider_payment_id}")
@@ -141,25 +132,21 @@ class PaymentService:
 
         yk_data = yk_result.get("data", {})
         
-        # Проверяем статус
         if yk_data.get("status") != "succeeded":
             logger.info(f"Payment not succeeded: {yk_data.get('status')}")
             return {"success": False, "error": f"Status: {yk_data.get('status')}"}
 
-        # Проверяем сумму
         amount_data = yk_data.get("amount", {})
         yk_amount = Decimal(amount_data.get("value", "0"))
         if yk_amount != payment.amount:
             logger.error(f"Amount mismatch: {yk_amount} != {payment.amount}")
             return {"success": False, "error": "Amount mismatch"}
 
-        # Проверяем валюту
         yk_currency = amount_data.get("currency", "")
         if yk_currency != payment.currency:
             logger.error(f"Currency mismatch: {yk_currency} != {payment.currency}")
             return {"success": False, "error": "Currency mismatch"}
 
-        # Проверяем metadata
         yk_metadata = yk_data.get("metadata", {})
         if yk_metadata.get("plan") != "pro":
             logger.error(f"Plan mismatch: {yk_metadata.get('plan')} != pro")
@@ -170,19 +157,15 @@ class PaymentService:
             logger.error(f"User mismatch: {user_id} != {payment.user_id}")
             return {"success": False, "error": "User mismatch"}
 
-        # ==================== АКТИВАЦИЯ PRO ====================
         try:
-            # Получаем текущую подписку
             subscription = await self.subscription_repo.get_by_user_id(user_id)
             
-            # Определяем дату окончания
             now = datetime.now(ZoneInfo("UTC"))
             if subscription and subscription.plan == PlanType.PRO and subscription.expires_at:
                 new_expires_at = subscription.expires_at + timedelta(days=payment.duration_days)
             else:
                 new_expires_at = now + timedelta(days=payment.duration_days)
 
-            # Обновляем или создаём подписку
             if subscription:
                 subscription.plan = PlanType.PRO
                 subscription.status = SubscriptionStatus.ACTIVE
@@ -196,7 +179,6 @@ class PaymentService:
                     duration_days=payment.duration_days,
                 )
 
-            # Отмечаем платеж как успешный
             await self.payment_repo.mark_succeeded(
                 payment.id,
                 provider_payment_id=provider_payment_id,
@@ -207,34 +189,33 @@ class PaymentService:
             logger.info(f"PRO activated for user {user_id} via payment {payment.id}")
 
             # ==================== ОПОВЕЩЕНИЕ АДМИНУ ====================
-            try:
-                ADMIN_ID = 462035571  # Ваш Telegram ID
-                
-                # Получаем данные пользователя
-                user_result = await self.db_session.execute(
-                    select(User).where(User.telegram_id == user_id)
-                )
-                user = user_result.scalar_one_or_none()
-                user_name = user.first_name if user else "Неизвестно"
-                
-                # Отправляем оповещение админу через бота
-                await self.yookassa.bot.send_message(
-                    chat_id=ADMIN_ID,
-                    text=(
-                        f"💳 <b>НОВЫЙ ПЛАТЁЖ!</b>\n\n"
-                        f"👤 Пользователь: <code>{user_id}</code>\n"
-                        f"👤 Имя: {user_name}\n"
-                        f"💰 Сумма: {payment.amount} {payment.currency}\n"
-                        f"📅 Дата: {datetime.now(ZoneInfo('UTC')).strftime('%d.%m.%Y %H:%M')}\n"
-                        f"🆔 Платёж: #{payment.id}\n"
-                        f"⭐ PRO активирован до: {new_expires_at.strftime('%d.%m.%Y')}\n\n"
-                        f"📊 Статистика: /admin"
-                    ),
-                    parse_mode="HTML",
-                )
-                logger.info(f"✅ Admin notified about payment #{payment.id}")
-            except Exception as e:
-                logger.error(f"❌ Failed to notify admin about payment: {e}")
+            if self.bot:
+                try:
+                    ADMIN_ID = 462035571
+                    
+                    user_result = await self.db_session.execute(
+                        select(User).where(User.telegram_id == user_id)
+                    )
+                    user = user_result.scalar_one_or_none()
+                    user_name = user.first_name if user else "Неизвестно"
+                    
+                    await self.bot.send_message(  # ← ИСПРАВЛЕНО: используем self.bot
+                        chat_id=ADMIN_ID,
+                        text=(
+                            f"💳 <b>НОВЫЙ ПЛАТЁЖ!</b>\n\n"
+                            f"👤 Пользователь: <code>{user_id}</code>\n"
+                            f"👤 Имя: {user_name}\n"
+                            f"💰 Сумма: {payment.amount} {payment.currency}\n"
+                            f"📅 Дата: {datetime.now(ZoneInfo('UTC')).strftime('%d.%m.%Y %H:%M')}\n"
+                            f"🆔 Платёж: #{payment.id}\n"
+                            f"⭐ PRO активирован до: {new_expires_at.strftime('%d.%m.%Y')}\n\n"
+                            f"📊 Статистика: /admin"
+                        ),
+                        parse_mode="HTML",
+                    )
+                    logger.info(f"✅ Admin notified about payment #{payment.id}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to notify admin about payment: {e}")
             # ============================================================
 
             return {
@@ -250,11 +231,9 @@ class PaymentService:
             return {"success": False, "error": str(e)}
 
     async def get_user_payments(self, user_id: int, limit: int = 10) -> list:
-        """Получить платежи пользователя."""
         return await self.payment_repo.get_user_payments(user_id, limit)
 
     async def get_payment_info(self, payment_id: int, user_id: int) -> Optional[dict]:
-        """Получить информацию о платеже."""
         payment = await self.payment_repo.get_by_id(payment_id, user_id)
         if not payment:
             return None
