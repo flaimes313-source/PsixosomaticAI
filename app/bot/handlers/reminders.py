@@ -90,7 +90,6 @@ async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_sessio
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
     
-    # Берём timezone из таблицы users
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
@@ -146,7 +145,6 @@ async def set_reminder_time(callback: CallbackQuery, state: FSMContext, db_sessi
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
     
-    # Берём timezone из таблицы users
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
@@ -203,7 +201,6 @@ async def process_custom_time(message: types.Message, state: FSMContext, db_sess
     telegram_id = message.from_user.id
     reminder_repo = ReminderRepository(db_session)
     
-    # Берём timezone из таблицы users
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
@@ -260,7 +257,6 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
     
-    # Берём timezone из таблицы users
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
@@ -306,26 +302,29 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
 @router.callback_query(F.data == "reminders_disable")
 async def disable_reminders(callback: CallbackQuery, db_session: AsyncSession):
     """Отключает напоминания."""
-    await callback.answer("Напоминания отключены")
-    
-    telegram_id = callback.from_user.id
-    reminder_repo = ReminderRepository(db_session)
-    await reminder_repo.update(telegram_id, enabled=False)
-    
-    # Обновляем текущее сообщение (edit_text вместо answer)
-    await callback.message.edit_text(
-        "🔕 <b>Напоминания отключены</b>\n\n"
-        "Ты больше не будешь получать напоминания о дневнике.\n\n"
-        "Чтобы снова включить — нажми '✅ Включить'.",
-        reply_markup=get_reminders_menu_keyboard(False),
-        parse_mode="HTML",
-    )
-    logger.info(f"Reminders disabled for user: {telegram_id}")
+    try:
+        await callback.answer("Напоминания отключены")
+        
+        telegram_id = callback.from_user.id
+        reminder_repo = ReminderRepository(db_session)
+        await reminder_repo.update(telegram_id, enabled=False)
+        
+        # Обновляем текущее сообщение
+        await callback.message.edit_text(
+            "🔕 <b>Напоминания отключены</b>\n\n"
+            "Ты больше не будешь получать напоминания о дневнике.\n\n"
+            "Чтобы снова включить — нажми '✅ Включить'.",
+            reply_markup=get_reminders_menu_keyboard(False),
+            parse_mode="HTML",
+        )
+        logger.info(f"Reminders disabled for user: {telegram_id}")
+    except Exception as e:
+        logger.error(f"Error disabling reminders: {e}")
+        await callback.answer("❌ Ошибка при отключении", show_alert=True)
 
 
 @router.callback_query(F.data == "reminders_back_to_menu")
 async def back_to_reminders_menu(callback: CallbackQuery, db_session: AsyncSession):
-    """Возврат в меню напоминаний."""
     await callback.answer()
     
     telegram_id = callback.from_user.id
@@ -353,7 +352,6 @@ async def back_to_reminders_menu(callback: CallbackQuery, db_session: AsyncSessi
 
 @router.callback_query(F.data == "reminders_close")
 async def close_reminders(callback: CallbackQuery, state: FSMContext):
-    """Закрывает раздел напоминаний и возвращает в главное меню."""
     await callback.answer()
     await state.clear()
     
@@ -368,12 +366,10 @@ async def close_reminders(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "reminders_back_to_profile")
 async def back_to_profile_from_reminders(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Возврат в профиль из напоминаний."""
     await callback.answer()
     await state.clear()
     
     from app.bot.handlers.profile import show_profile
-    
     await callback.message.delete()
     await show_profile(callback.message, state, db_session)
 
@@ -388,7 +384,6 @@ async def reminder_open_diary(callback: CallbackQuery, state: FSMContext, db_ses
     
     from app.bot.handlers.diary import start_new_diary_entry
     
-    # Создаём фейковое сообщение с правильной структурой
     class FakeUser:
         def __init__(self, user_id):
             self.id = user_id
@@ -413,7 +408,6 @@ async def reminder_open_diary(callback: CallbackQuery, state: FSMContext, db_ses
             self.bot = bot
         
         async def answer(self, text, reply_markup=None, parse_mode=None):
-            """Отправляет сообщение через бота."""
             await self.bot.send_message(
                 chat_id=self.from_user.id,
                 text=text,
@@ -423,16 +417,9 @@ async def reminder_open_diary(callback: CallbackQuery, state: FSMContext, db_ses
     
     fake_message = FakeMessage(callback.from_user.id, callback.bot)
     
-    # 🔥 ЛОГИРУЕМ ДЛЯ ОТЛАДКИ
-    logger.info(f"📤 FakeMessage created for user {callback.from_user.id}")
-    logger.info(f"📤 FakeMessage.from_user.id = {fake_message.from_user.id}")
-    logger.info(f"📤 FakeMessage.text = {fake_message.text}")
-    
-    # Удаляем сообщение с напоминанием
     await callback.message.delete()
     
     try:
-        # Запускаем создание новой записи
         await start_new_diary_entry(fake_message, state, db_session)
         logger.info(f"✅ start_new_diary_entry called successfully for user {callback.from_user.id}")
     except Exception as e:
@@ -444,7 +431,6 @@ async def reminder_open_diary(callback: CallbackQuery, state: FSMContext, db_ses
 
 
 def _format_days(days: Optional[List[int]]) -> str:
-    """Форматирует список дней недели в строку."""
     if not days:
         return "каждый день"
     

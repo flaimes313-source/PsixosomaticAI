@@ -26,6 +26,7 @@ class ReminderService:
         if self.running:
             logger.warning("ReminderService already running")
             return
+
         self.running = True
         self.task = asyncio.create_task(self._scheduler_loop())
         logger.info("✅ ReminderService started")
@@ -52,7 +53,6 @@ class ReminderService:
                 await asyncio.sleep(30)
 
     async def _check_reminders(self):
-        """Проверяет, нужно ли отправить напоминания."""
         async with self.session_factory() as session:
             reminder_repo = ReminderRepository(session)
             settings_list = await reminder_repo.get_active_reminders()
@@ -64,17 +64,14 @@ class ReminderService:
                 if not settings.enabled or not settings.reminder_time:
                     continue
 
-                # Проверяем, не отправляли ли уже сегодня
                 if await reminder_repo.is_reminder_sent_today(settings.user_id):
                     continue
 
-                # Получаем часовой пояс пользователя
                 try:
                     user_tz = ZoneInfo(settings.timezone)
                 except Exception:
                     user_tz = ZoneInfo("UTC")
 
-                # 🔥 ГЛАВНОЕ: ВСЕГДА используем время пользователя
                 user_now = datetime.now(user_tz)
                 user_time = user_now.time()
                 user_weekday = user_now.weekday()
@@ -82,24 +79,15 @@ class ReminderService:
                 reminder_hour = settings.reminder_time.hour
                 reminder_minute = settings.reminder_time.minute
 
-                logger.info(f"⏰ User {settings.user_id}: now={user_time.hour}:{user_time.minute}, reminder={reminder_hour}:{reminder_minute}, weekday={user_weekday}")
-
-                # Проверяем совпадение времени (с запасом 1 минута)
-                if (user_time.hour == reminder_hour and
+                if (user_time.hour == reminder_hour and 
                     abs(user_time.minute - reminder_minute) <= 1):
 
-                    logger.info(f"✅ Time match for user {settings.user_id}!")
-
-                    # Проверяем дни недели (по времени пользователя)
                     if settings.days_of_week is not None and len(settings.days_of_week) > 0:
                         if user_weekday not in settings.days_of_week:
-                            logger.info(f"⏭️ Wrong day for user {settings.user_id}")
                             continue
 
-                    logger.info(f"📤 Sending reminder to user {settings.user_id}")
                     await self._send_reminder(settings.user_id, session)
                     await reminder_repo.update_last_sent(settings.user_id)
-                    logger.info(f"✅ Reminder sent and updated for user {settings.user_id}")
 
     async def _send_reminder(self, user_id: int, session: AsyncSession):
         try:
@@ -141,7 +129,7 @@ class ReminderService:
                     )],
                     [InlineKeyboardButton(
                         text="🔕 Отключить напоминания",
-                        callback_data="reminder_disable"
+                        callback_data="reminders_disable"
                     )]
                 ]
             )
