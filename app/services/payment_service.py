@@ -73,14 +73,13 @@ class PaymentService:
             },
         )
 
-        # ==================== ИСПРАВЛЕНО ====================
-        # Создаём платеж в ЮKassa (параметр называется metadata, а не payment_metadata)
+        # Создаём платеж в ЮKassa
         result = await self.yookassa.create_payment(
             amount=amount,
             currency=currency,
             description=f"Psychosomatic PRO — {duration_days} дней",
             return_url=settings.YOOKASSA_RETURN_URL,
-            metadata={  # ← ИСПРАВЛЕНО
+            metadata={
                 "user_id": str(user_id),
                 "plan": "pro",
                 "duration_days": str(duration_days),
@@ -88,7 +87,6 @@ class PaymentService:
             },
             idempotence_key=idempotence_key,
         )
-        # ===================================================
 
         if not result.get("success"):
             # Отмечаем платеж как неудачный
@@ -173,7 +171,6 @@ class PaymentService:
             return {"success": False, "error": "User mismatch"}
 
         # ==================== АКТИВАЦИЯ PRO ====================
-        # Используем транзакцию
         try:
             # Получаем текущую подписку
             subscription = await self.subscription_repo.get_by_user_id(user_id)
@@ -181,10 +178,8 @@ class PaymentService:
             # Определяем дату окончания
             now = datetime.now(ZoneInfo("UTC"))
             if subscription and subscription.plan == PlanType.PRO and subscription.expires_at:
-                # Продлеваем с текущей даты окончания
                 new_expires_at = subscription.expires_at + timedelta(days=payment.duration_days)
             else:
-                # Новая подписка
                 new_expires_at = now + timedelta(days=payment.duration_days)
 
             # Обновляем или создаём подписку
@@ -210,6 +205,37 @@ class PaymentService:
             )
 
             logger.info(f"PRO activated for user {user_id} via payment {payment.id}")
+
+            # ==================== ОПОВЕЩЕНИЕ АДМИНУ ====================
+            try:
+                ADMIN_ID = 462035571  # Ваш Telegram ID
+                
+                # Получаем данные пользователя
+                user_result = await self.db_session.execute(
+                    select(User).where(User.telegram_id == user_id)
+                )
+                user = user_result.scalar_one_or_none()
+                user_name = user.first_name if user else "Неизвестно"
+                
+                # Отправляем оповещение админу через бота
+                await self.yookassa.bot.send_message(
+                    chat_id=ADMIN_ID,
+                    text=(
+                        f"💳 <b>НОВЫЙ ПЛАТЁЖ!</b>\n\n"
+                        f"👤 Пользователь: <code>{user_id}</code>\n"
+                        f"👤 Имя: {user_name}\n"
+                        f"💰 Сумма: {payment.amount} {payment.currency}\n"
+                        f"📅 Дата: {datetime.now(ZoneInfo('UTC')).strftime('%d.%m.%Y %H:%M')}\n"
+                        f"🆔 Платёж: #{payment.id}\n"
+                        f"⭐ PRO активирован до: {new_expires_at.strftime('%d.%m.%Y')}\n\n"
+                        f"📊 Статистика: /admin"
+                    ),
+                    parse_mode="HTML",
+                )
+                logger.info(f"✅ Admin notified about payment #{payment.id}")
+            except Exception as e:
+                logger.error(f"❌ Failed to notify admin about payment: {e}")
+            # ============================================================
 
             return {
                 "success": True,
