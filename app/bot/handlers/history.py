@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from zoneinfo import ZoneInfo
 
 from app.db.repositories.analysis import AnalysisRepository
@@ -64,34 +64,68 @@ async def show_history(message: types.Message, db_session: AsyncSession = None, 
 
 
 async def _show_history_internal(message: types.Message, db_session: AsyncSession, state: FSMContext = None):
-    """Внутренняя функция для показа истории."""
+    """Внутренняя функция для показа истории с ДЕТАЛЬНЫМ логированием."""
     if state:
         await state.clear()
     
     telegram_id = message.from_user.id
+    logger.info("=" * 60)
+    logger.info(f"🔍 ИЩЕМ ПОЛЬЗОВАТЕЛЯ С TELEGRAM_ID: {telegram_id}")
     
     try:
+        # ============ 1. Ищем пользователя ============
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
         user = result.scalar_one_or_none()
         
         if not user:
+            logger.error(f"❌ ПОЛЬЗОВАТЕЛЬ НЕ НАЙДЕН для telegram_id: {telegram_id}")
+            
+            # Выведем всех пользователей из БД
+            all_users = await db_session.execute(select(User))
+            users_list = all_users.scalars().all()
+            logger.info(f"📋 ВСЕ ПОЛЬЗОВАТЕЛИ В БД ({len(users_list)} шт.):")
+            for u in users_list:
+                logger.info(f"   id={u.id}, telegram_id={u.telegram_id}, name={u.first_name}")
+            
             await message.answer(
                 "⚠️ Вы еще не зарегистрированы.\nОтправьте /start",
                 reply_markup=get_main_menu_keyboard(),
             )
             return
         
+        logger.info(f"✅ НАЙДЕН ПОЛЬЗОВАТЕЛЬ: id={user.id}, telegram_id={user.telegram_id}, name={user.first_name}")
+        
+        # ============ 2. Смотрим ВСЕ анализы в БД ============
+        all_analyses_raw = await db_session.execute(
+            text("SELECT id, user_id, symptom, created_at FROM analyses ORDER BY id DESC LIMIT 20")
+        )
+        all_analyses = all_analyses_raw.fetchall()
+        logger.info(f"📊 ВСЕ АНАЛИЗЫ В БД (последние 20):")
+        for a in all_analyses:
+            logger.info(f"   id={a[0]}, user_id={a[1]}, symptom={a[2][:30]}..., created_at={a[3]}")
+        
+        # ============ 3. Получаем часовой пояс пользователя ============
         try:
             user_tz = ZoneInfo(user.timezone or "UTC")
         except:
             user_tz = ZoneInfo("UTC")
         
+        # ============ 4. Ищем анализы КОНКРЕТНОГО пользователя ============
         analysis_repo = AnalysisRepository(db_session)
         analyses = await analysis_repo.get_user_analyses(user.id, limit=10)
         
+        logger.info(f"🔎 АНАЛИЗЫ ДЛЯ user_id={user.id}: НАЙДЕНО {len(analyses)} шт.")
+        
         if not analyses:
+            # Проверим, есть ли анализы с другим user_id
+            other_analyses = await db_session.execute(
+                text("SELECT DISTINCT user_id FROM analyses")
+            )
+            other_users = other_analyses.fetchall()
+            logger.info(f"👥 user_id, у которых есть анализы: {[u[0] for u in other_users]}")
+            
             await message.answer(
                 "📋 У вас пока нет сохраненных сессий.\n\n"
                 "Нажмите 🤔 Что я чувствую в теле? или 💡 Помогите разобраться",
@@ -100,6 +134,7 @@ async def _show_history_internal(message: types.Message, db_session: AsyncSessio
             return
         
         total = await analysis_repo.get_user_analyses_count(user.id)
+        logger.info(f"📊 Всего анализов у пользователя: {total}")
         
         history_text = (
             f"📋 <b>История сессий</b>\n\n"
@@ -114,8 +149,12 @@ async def _show_history_internal(message: types.Message, db_session: AsyncSessio
             parse_mode="HTML",
         )
         
+        logger.info("=" * 60)
+        
     except Exception as e:
-        logger.error(f"Error in show_history: {e}")
+        logger.error(f"🔥 ОШИБКА в show_history: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         await message.answer(
             "❌ Ошибка загрузки истории.",
             reply_markup=get_main_menu_keyboard(),
