@@ -1,5 +1,5 @@
 """
-Обработчик для раздела PRO.
+Обработчик для раздела PRO (Сома. PRO).
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -25,39 +25,34 @@ from app.config import settings
 router = Router()
 
 
-@router.message(F.text == "⭐ PRO")
+# ==================== ИЗМЕНЕНО: фильтр на новое название кнопки ====================
+@router.message(F.text == "⭐ Сома. PRO")
 async def show_pro_menu(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Показывает меню PRO (из главного меню)."""
+    """Показывает меню Сома. PRO (из главного меню)."""
     await state.clear()
     
     user_id = message.from_user.id
     
     access_service = AccessService(db_session)
-    subscription_service = SubscriptionService(db_session)
+    is_pro = await access_service.is_pro(user_id)   # нужно для клавиатуры
     
-    is_pro = await access_service.is_pro(user_id)
-    plan_info = await subscription_service.get_subscription_info(user_id)
-    
-    if is_pro:
-        days_left = plan_info.get("days_left")
-        if days_left is not None and days_left > 0:
-            status_text = f"✅ Активен (осталось {days_left} дн.)"
-        else:
-            status_text = "✅ Активен (безлимит)"
-    else:
-        status_text = "🔓 Бесплатный тариф"
-    
+    # НОВЫЙ ТЕКСТ согласно вашему описанию
     text = (
-        f"⭐ <b>Psychosomatic PRO</b>\n\n"
-        f"Твой тариф: <b>{status_text}</b>\n\n"
-        "📋 <b>Что входит в PRO:</b>\n"
-        "• 📊 Динамика за 30 и 90 дней\n"
-        "• 🔎 Расширенный поиск закономерностей\n"
-        "• 📔 Неограниченный дневник\n"
-        "• 🧠 Больше AI-анализов (безлимит)\n"
-        "• 📈 Расширенные отчёты\n"
-        "• 🔔 Расширенные настройки напоминаний\n\n"
-        f"💳 Стоимость: <b>{settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>"
+        "⭐ <b>Сома. PRO</b>\n\n"
+        "🔓 <b>Бесплатный тариф</b>\n"
+        "· 1 полный разбор — уточняющие вопросы → анализ → гипотезы → рекомендации на 72 часа.\n"
+        "· Анализ по 2 подходам — Синельников + современный.\n"
+        "· История — 7 дней.\n"
+        "· Поддержка — автоответы бота 24/7.\n\n"
+        f"💎 <b>PRO — {settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>\n"
+        "· Безлимит разборов\n"
+        "· Динамика за 30 и 90 дней\n"
+        "· Неограниченный дневник\n"
+        "· Расширенные отчёты\n"
+        "· Напоминания под себя\n"
+        "· Персонализация (запоминает паттерны)\n"
+        "· Приоритетная поддержка (живой специалист по нестандартным вопросам, ответ в течение дня)\n\n"
+        f"💳 {settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней"
     )
     
     await message.answer(
@@ -69,37 +64,31 @@ async def show_pro_menu(message: types.Message, state: FSMContext, db_session: A
 
 
 async def show_pro_from_profile(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Показывает PRO с возвратом в профиль."""
+    """Показывает Сома. PRO с возвратом в профиль."""
     await state.clear()
     
     user_id = message.from_user.id
     
     access_service = AccessService(db_session)
-    subscription_service = SubscriptionService(db_session)
+    is_pro = await access_service.is_pro(user_id)   # для клавиатуры
     
-    is_pro = await access_service.is_pro(user_id)
-    plan_info = await subscription_service.get_subscription_info(user_id)
-    
-    if is_pro:
-        days_left = plan_info.get("days_left")
-        if days_left is not None and days_left > 0:
-            status_text = f"✅ Активен (осталось {days_left} дн.)"
-        else:
-            status_text = "✅ Активен (безлимит)"
-    else:
-        status_text = "🔓 Бесплатный тариф"
-    
+    # Тот же новый текст
     text = (
-        f"⭐ <b>Psychosomatic PRO</b>\n\n"
-        f"Твой тариф: <b>{status_text}</b>\n\n"
-        "📋 <b>Что входит в PRO:</b>\n"
-        "• 📊 Динамика за 30 и 90 дней\n"
-        "• 🔎 Расширенный поиск закономерностей\n"
-        "• 📔 Неограниченный дневник\n"
-        "• 🧠 Больше AI-анализов (безлимит)\n"
-        "• 📈 Расширенные отчёты\n"
-        "• 🔔 Расширенные настройки напоминаний\n\n"
-        f"💳 Стоимость: <b>{settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>"
+        "⭐ <b>Сома. PRO</b>\n\n"
+        "🔓 <b>Бесплатный тариф</b>\n"
+        "· 1 полный разбор — уточняющие вопросы → анализ → гипотезы → рекомендации на 72 часа.\n"
+        "· Анализ по 2 подходам — Синельников + современный.\n"
+        "· История — 7 дней.\n"
+        "· Поддержка — автоответы бота 24/7.\n\n"
+        f"💎 <b>PRO — {settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>\n"
+        "· Безлимит разборов\n"
+        "· Динамика за 30 и 90 дней\n"
+        "· Неограниченный дневник\n"
+        "· Расширенные отчёты\n"
+        "· Напоминания под себя\n"
+        "· Персонализация (запоминает паттерны)\n"
+        "· Приоритетная поддержка (живой специалист по нестандартным вопросам, ответ в течение дня)\n\n"
+        f"💳 {settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней"
     )
     
     await message.answer(
@@ -111,27 +100,29 @@ async def show_pro_from_profile(message: types.Message, state: FSMContext, db_se
 
 
 @router.callback_query(F.data == "pro_features")
-async def show_pro_features(callback: CallbackQuery):
-    """Показывает подробности PRO."""
+async def show_pro_features(callback: CallbackQuery, db_session: AsyncSession):
+    """Показывает подробности Сома. PRO (теперь используется тот же текст, что в меню)."""
     await callback.answer()
     
+    # Для клавиатуры определяем статус (можно использовать get_pro_features_keyboard, но там может быть другая клавиатура)
+    # Оставляем вызов get_pro_features_keyboard() без изменений, он, вероятно, содержит кнопку "Назад" и т.п.
+    # Текст меняем на новый
     text = (
-        "⭐ <b>Что даёт PRO-подписка?</b>\n\n"
-        "📊 <b>Анализ динамики</b>\n"
-        "• 30 и 90 дней вместо 7\n"
-        "• Расширенный анализ закономерностей\n"
-        "• Сравнение периодов\n\n"
-        "📔 <b>Дневник</b>\n"
-        "• Безлимитное количество записей\n"
-        "• Расширенная статистика\n\n"
-        "🧠 <b>AI-анализы</b>\n"
-        "• Неограниченное количество\n"
-        "• Расширенные отчёты\n"
-        "• Глубокий анализ связей\n\n"
-        "🔔 <b>Напоминания</b>\n"
-        "• Расширенные настройки\n"
-        "• Гибкий график\n\n"
-        f"💳 Стоимость: <b>{settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>"
+        "⭐ <b>Сома. PRO</b>\n\n"
+        "🔓 <b>Бесплатный тариф</b>\n"
+        "· 1 полный разбор — уточняющие вопросы → анализ → гипотезы → рекомендации на 72 часа.\n"
+        "· Анализ по 2 подходам — Синельников + современный.\n"
+        "· История — 7 дней.\n"
+        "· Поддержка — автоответы бота 24/7.\n\n"
+        f"💎 <b>PRO — {settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>\n"
+        "· Безлимит разборов\n"
+        "· Динамика за 30 и 90 дней\n"
+        "· Неограниченный дневник\n"
+        "· Расширенные отчёты\n"
+        "· Напоминания под себя\n"
+        "· Персонализация (запоминает паттерны)\n"
+        "· Приоритетная поддержка (живой специалист по нестандартным вопросам, ответ в течение дня)\n\n"
+        f"💳 {settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней"
     )
     
     await callback.message.edit_text(
@@ -143,12 +134,11 @@ async def show_pro_features(callback: CallbackQuery):
 
 @router.callback_query(F.data == "pro_pay")
 async def start_payment(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Начинает процесс оплаты PRO."""
+    """Начинает процесс оплаты Сома. PRO."""
     await callback.answer("Создаю платёж...")
     
     user_id = callback.from_user.id
     
-    # Проверяем, не PRO ли уже
     access_service = AccessService(db_session)
     if await access_service.is_pro(user_id):
         await callback.message.edit_text(
@@ -159,9 +149,7 @@ async def start_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
         return
     
-    # ==================== ИСПРАВЛЕНО: передаём bot ====================
-    payment_service = PaymentService(db_session, callback.bot)  # ← ДОБАВЛЕН bot
-    # ================================================================
+    payment_service = PaymentService(db_session, callback.bot)
     
     result = await payment_service.create_pro_payment(user_id)
     
@@ -173,11 +161,9 @@ async def start_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
         return
     
-    # Сохраняем payment_id в FSM
     await state.set_state(ProStates.waiting_for_payment)
     await state.update_data(payment_id=result.get("payment_id"))
     
-    # Показываем ссылку на оплату
     confirmation_url = result.get("confirmation_url")
     amount = result.get("amount")
     
@@ -213,11 +199,8 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
         return
     
-    # ==================== ИСПРАВЛЕНО: передаём bot ====================
-    payment_service = PaymentService(db_session, callback.bot)  # ← ДОБАВЛЕН bot
-    # ================================================================
+    payment_service = PaymentService(db_session, callback.bot)
     
-    # Получаем платеж из БД
     payment = await payment_service.payment_repo.get_by_id(payment_id, callback.from_user.id)
     if not payment:
         await callback.message.edit_text(
@@ -227,7 +210,6 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
         return
     
-    # Если уже SUCCEEDED — просто показываем успех
     if payment.status == "SUCCEEDED":
         await state.clear()
         await callback.message.edit_text(
@@ -238,7 +220,6 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
         return
     
-    # Если нет provider_payment_id — ошибка
     if not payment.provider_payment_id:
         await callback.message.edit_text(
             "❌ Нет ID платежа в ЮKassa.",
@@ -247,14 +228,12 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
         )
         return
     
-    # Проверяем статус в ЮKassa
     yookassa = YooKassaService()
     status = await yookassa.check_payment_status(payment.provider_payment_id)
     
     logger.info(f"🔄 Check payment: provider_payment_id={payment.provider_payment_id}, status={status}")
     
     if status == "succeeded":
-        # 🔥 ВЫЗЫВАЕМ ОБРАБОТЧИК УСПЕШНОГО ПЛАТЕЖА
         result = await payment_service.process_successful_webhook(
             payment.provider_payment_id,
             {}
@@ -282,7 +261,6 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
             return
     
     elif status == "pending":
-        # 🔥 ИСПРАВЛЕНО: не редактируем, если уже висит "pending"
         current_text = callback.message.text
         if "⏳" not in current_text:
             await callback.message.edit_text(
@@ -306,36 +284,30 @@ async def check_payment(callback: CallbackQuery, state: FSMContext, db_session: 
 
 @router.callback_query(F.data == "pro_back")
 async def back_to_pro_menu(callback: CallbackQuery, db_session: AsyncSession):
-    """Возврат в меню PRO."""
+    """Возврат в меню Сома. PRO."""
     await callback.answer()
     
     user_id = callback.from_user.id
     access_service = AccessService(db_session)
-    subscription_service = SubscriptionService(db_session)
+    is_pro = await access_service.is_pro(user_id)   # для клавиатуры
     
-    is_pro = await access_service.is_pro(user_id)
-    plan_info = await subscription_service.get_subscription_info(user_id)
-    
-    if is_pro:
-        days_left = plan_info.get("days_left")
-        if days_left is not None and days_left > 0:
-            status_text = f"✅ Активен (осталось {days_left} дн.)"
-        else:
-            status_text = "✅ Активен (безлимит)"
-    else:
-        status_text = "🔓 Бесплатный тариф"
-    
+    # Обновлённый текст (такой же, как в основном меню)
     text = (
-        f"⭐ <b>Psychosomatic PRO</b>\n\n"
-        f"Твой тариф: <b>{status_text}</b>\n\n"
-        "📋 <b>Что входит в PRO:</b>\n"
-        "• 📊 Динамика за 30 и 90 дней\n"
-        "• 🔎 Расширенный поиск закономерностей\n"
-        "• 📔 Неограниченный дневник\n"
-        "• 🧠 Больше AI-анализов (безлимит)\n"
-        "• 📈 Расширенные отчёты\n"
-        "• 🔔 Расширенные настройки напоминаний\n\n"
-        f"💳 Стоимость: <b>{settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>"
+        "⭐ <b>Сома. PRO</b>\n\n"
+        "🔓 <b>Бесплатный тариф</b>\n"
+        "· 1 полный разбор — уточняющие вопросы → анализ → гипотезы → рекомендации на 72 часа.\n"
+        "· Анализ по 2 подходам — Синельников + современный.\n"
+        "· История — 7 дней.\n"
+        "· Поддержка — автоответы бота 24/7.\n\n"
+        f"💎 <b>PRO — {settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней</b>\n"
+        "· Безлимит разборов\n"
+        "· Динамика за 30 и 90 дней\n"
+        "· Неограниченный дневник\n"
+        "· Расширенные отчёты\n"
+        "· Напоминания под себя\n"
+        "· Персонализация (запоминает паттерны)\n"
+        "· Приоритетная поддержка (живой специалист по нестандартным вопросам, ответ в течение дня)\n\n"
+        f"💳 {settings.PRO_PRICE_RUB} ₽ / {settings.PRO_DURATION_DAYS} дней"
     )
     
     await callback.message.edit_text(
@@ -364,9 +336,7 @@ async def show_payments_history(callback: CallbackQuery, db_session: AsyncSessio
     await callback.answer()
     
     user_id = callback.from_user.id
-    # ==================== ИСПРАВЛЕНО: передаём bot ====================
-    payment_service = PaymentService(db_session, callback.bot)  # ← ДОБАВЛЕН bot
-    # ================================================================
+    payment_service = PaymentService(db_session, callback.bot)
     
     payments = await payment_service.get_user_payments(user_id, limit=10)
     
