@@ -50,20 +50,21 @@ def get_analysis_buttons(analyses: list, user_tz) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# ==================== ИСПРАВЛЕНО: проверка на None ====================
 @router.message(Command("history"))
 @router.message(F.text == "📋 История анализов")
 async def show_history(message: types.Message, db_session: AsyncSession = None, state: FSMContext = None):
     """Показывает историю сессий пользователя."""
-    # Проверяем, что db_session не None
     if db_session is None:
-        logger.error("db_session is None in show_history")
-        await message.answer(
-            "❌ Ошибка подключения к базе данных. Попробуйте позже.",
-            reply_markup=get_main_menu_keyboard(),
-        )
+        from app.db.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_session:
+            await _show_history_internal(message, new_session, state)
         return
     
+    await _show_history_internal(message, db_session, state)
+
+
+async def _show_history_internal(message: types.Message, db_session: AsyncSession, state: FSMContext = None):
+    """Внутренняя функция для показа истории."""
     if state:
         await state.clear()
     
@@ -127,12 +128,16 @@ async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession
     await callback.answer()
     
     if db_session is None:
-        await callback.message.edit_text(
-            "❌ Ошибка подключения к базе данных.",
-            reply_markup=None,
-        )
+        from app.db.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_session:
+            await _show_analysis_detail_internal(callback, new_session)
         return
     
+    await _show_analysis_detail_internal(callback, db_session)
+
+
+async def _show_analysis_detail_internal(callback: CallbackQuery, db_session: AsyncSession):
+    """Внутренняя функция для показа деталей сессии."""
     analysis_id = int(callback.data.split("_")[2])
     
     try:
@@ -239,12 +244,16 @@ async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession
     await callback.answer()
     
     if db_session is None:
-        await callback.message.edit_text(
-            "❌ Ошибка подключения к базе данных.",
-            reply_markup=None,
-        )
+        from app.db.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_session:
+            await _back_to_history_internal(callback, new_session)
         return
     
+    await _back_to_history_internal(callback, db_session)
+
+
+async def _back_to_history_internal(callback: CallbackQuery, db_session: AsyncSession):
+    """Внутренняя функция для возврата к списку."""
     try:
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -302,12 +311,16 @@ async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession
     await callback.answer("Обновляю...")
     
     if db_session is None:
-        await callback.message.edit_text(
-            "❌ Ошибка подключения к базе данных.",
-            reply_markup=None,
-        )
+        from app.db.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_session:
+            await _refresh_history_internal(callback, new_session)
         return
     
+    await _refresh_history_internal(callback, db_session)
+
+
+async def _refresh_history_internal(callback: CallbackQuery, db_session: AsyncSession):
+    """Внутренняя функция для обновления списка."""
     try:
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -359,8 +372,6 @@ async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession
         )
 
 
-# ==================== ОЧИСТКА ИСТОРИИ ====================
-
 @router.callback_query(F.data == "clear_history")
 async def confirm_clear_history(callback: CallbackQuery):
     """Подтверждение очистки истории."""
@@ -395,12 +406,16 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession = None
     await callback.answer("Удаляю историю...")
     
     if db_session is None:
-        await callback.message.edit_text(
-            "❌ Ошибка подключения к базе данных.",
-            reply_markup=None,
-        )
+        from app.db.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_session:
+            await _clear_history_internal(callback, new_session)
         return
     
+    await _clear_history_internal(callback, db_session)
+
+
+async def _clear_history_internal(callback: CallbackQuery, db_session: AsyncSession):
+    """Внутренняя функция для очистки истории."""
     try:
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
@@ -426,7 +441,6 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession = None
             )
             return
         
-        # Удаляем все анализы
         for analysis in analyses:
             await db_session.delete(analysis)
         
@@ -457,8 +471,6 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession = None
             reply_markup=get_main_menu_keyboard(),
         )
 
-
-# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
 
 @router.callback_query(F.data == "back_to_profile_from_history")
 async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):

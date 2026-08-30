@@ -32,14 +32,9 @@ class DBSessionMiddleware(BaseMiddleware):
             
             try:
                 result = await handler(event, data)
-                # Транзакция будет закоммичена в репозитории
                 return result
                 
             except Exception as e:
-                # При ошибке откатываем транзакцию
                 await session.rollback()
                 logger.error(f"Error in handler, transaction rolled back: {e}")
                 raise
-            finally:
-                # Сессия автоматически закроется при выходе из контекстного менеджера
-                pass

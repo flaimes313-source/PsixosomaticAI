@@ -105,13 +105,22 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
 
 
 @router.callback_query(F.data.startswith("profile_"))
-async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession = None):
     """Обработка действий в профиле."""
     await callback.answer()
     
-    action = callback.data.replace("profile_", "")
+    if db_session is None:
+        from app.db.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_session:
+            await _handle_profile_action(callback, state, new_session)
+        return
     
-    # ==================== НАВИГАЦИЯ ====================
+    await _handle_profile_action(callback, state, db_session)
+
+
+async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Внутренний обработчик действий в профиле."""
+    action = callback.data.replace("profile_", "")
     
     if action == "back_to_profile":
         await callback.message.delete()
@@ -125,8 +134,6 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
             reply_markup=get_main_menu_keyboard(),
         )
         return
-    
-    # ==================== РАЗДЕЛЫ ====================
     
     elif action == "settings":
         await callback.message.delete()
@@ -146,7 +153,7 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     elif action == "history":
         await callback.message.delete()
         from app.bot.handlers.history import show_history
-        await show_history(callback.message, db_session, state)  # ← ИСПРАВЛЕНО: передаём state
+        await show_history(callback.message, db_session, state)
     
     elif action == "privacy":
         privacy_text = (
@@ -196,21 +203,31 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         )
 
 
-# Универсальный возврат в профиль
 @router.callback_query(F.data == "back_to_profile")
-async def back_to_profile_generic(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+async def back_to_profile_generic(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession = None):
     """Универсальный возврат в профиль."""
     await callback.answer()
     await state.clear()
     await callback.message.delete()
-    await show_profile(callback.message, state, db_session)
+    
+    if db_session is None:
+        from app.db.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_session:
+            await show_profile(callback.message, state, new_session)
+    else:
+        await show_profile(callback.message, state, db_session)
 
 
-# Возврат в профиль из истории
 @router.callback_query(F.data == "history_back_to_profile")
-async def history_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+async def history_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession = None):
     """Возврат в профиль из истории."""
     await callback.answer()
     await state.clear()
     await callback.message.delete()
-    await show_profile(callback.message, state, db_session)
+    
+    if db_session is None:
+        from app.db.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as new_session:
+            await show_profile(callback.message, state, new_session)
+    else:
+        await show_profile(callback.message, state, db_session)
