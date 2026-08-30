@@ -50,19 +50,18 @@ def get_analysis_buttons(analyses: list, user_tz) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# ============ ИСПРАВЛЕНО: принимает event ============
+# ==================== ИСПРАВЛЕНО: принимает event (Message или CallbackQuery) ====================
+
 @router.message(Command("history"))
 @router.message(F.text == "📋 История анализов")
 async def show_history(event: types.Message | CallbackQuery, db_session: AsyncSession = None, state: FSMContext = None):
     """Показывает историю сессий пользователя."""
     # Определяем, откуда пришёл запрос
     if isinstance(event, CallbackQuery):
-        # Если это callback — берём ID из callback.from_user.id
         user_id = event.from_user.id
         message = event.message
         await event.answer()
     else:
-        # Если это обычное сообщение — берём из message.from_user.id
         user_id = event.from_user.id
         message = event
     
@@ -82,8 +81,7 @@ async def _show_history_internal(message: types.Message, db_session: AsyncSessio
     
     # Если user_id не передан — берём из message
     if user_id is None:
-        user_id = message.from_user.id
-    
+        user_id = message.from_user.id    
     telegram_id = user_id
     logger.info("=" * 60)
     logger.info(f"🔍 ИЩЕМ ПОЛЬЗОВАТЕЛЯ С TELEGRAM_ID: {telegram_id}")

@@ -150,11 +150,11 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
         from app.bot.handlers.pro import show_pro_from_profile
         await show_pro_from_profile(callback.message, state, db_session)
     
+    # ==================== ИСПРАВЛЕНО: передаём callback ====================
     elif action == "history":
         await callback.message.delete()
         from app.bot.handlers.history import show_history
-        # ============ ИСПРАВЛЕНО: передаём callback, а не callback.message ============
-        await show_history(callback, db_session, state)
+        await show_history(callback, db_session, state)  # ← ИСПРАВЛЕНО
     
     elif action == "privacy":
         privacy_text = (

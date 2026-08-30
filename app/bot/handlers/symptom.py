@@ -17,11 +17,11 @@ from app.bot.keyboards import (
     get_clarification_keyboard,
     get_question_keyboard,
 )
-from app.bot.keyboards.pro import get_pro_locked_keyboard  # ← НОВЫЙ ИМПОРТ
+from app.bot.keyboards.pro import get_pro_locked_keyboard
 from app.services.ai_service import ai_service, AIService
 from app.services.safety import safety_service, SafetyLevel
-from app.services.access_service import AccessService  # ← НОВЫЙ ИМПОРТ
-from app.services.usage_service import UsageService     # ← НОВЫЙ ИМПОРТ
+from app.services.access_service import AccessService
+from app.services.usage_service import UsageService
 from app.utils.logging import logger
 from app.utils.formatter import format_analysis_for_telegram
 
@@ -610,7 +610,7 @@ async def new_analysis(callback: CallbackQuery, state: FSMContext):
     await start_symptom_analysis(fake_message, state)
 
 
-# ==================== КОНЕЧНЫЕ КНОПКИ ====================
+# ==================== ИСПРАВЛЕНО: передаём callback, а не callback.message ====================
 
 @router.callback_query(F.data == "history_back")
 async def go_to_history(callback: CallbackQuery, state: FSMContext):
@@ -619,7 +619,7 @@ async def go_to_history(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     
     from app.bot.handlers.history import show_history
-    await show_history(callback.message, db_session=None)
+    await show_history(callback, db_session=None)  # ← ИСПРАВЛЕНО: передаём callback
 
 
 @router.callback_query(F.data == "back_to_menu")
