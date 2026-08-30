@@ -50,11 +50,20 @@ def get_analysis_buttons(analyses: list, user_tz) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# ==================== ИСПРАВЛЕНО: добавлен FSMContext ====================
+# ==================== ИСПРАВЛЕНО: проверка на None ====================
 @router.message(Command("history"))
 @router.message(F.text == "📋 История анализов")
-async def show_history(message: types.Message, db_session: AsyncSession, state: FSMContext = None):
+async def show_history(message: types.Message, db_session: AsyncSession = None, state: FSMContext = None):
     """Показывает историю сессий пользователя."""
+    # Проверяем, что db_session не None
+    if db_session is None:
+        logger.error("db_session is None in show_history")
+        await message.answer(
+            "❌ Ошибка подключения к базе данных. Попробуйте позже.",
+            reply_markup=get_main_menu_keyboard(),
+        )
+        return
+    
     if state:
         await state.clear()
     
@@ -112,11 +121,17 @@ async def show_history(message: types.Message, db_session: AsyncSession, state: 
         )
 
 
-# ==================== ИСПРАВЛЕНО: добавлена обработка ошибки при удалении сообщения ====================
 @router.callback_query(F.data.startswith("analysis_view_"))
-async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession):
+async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession = None):
     """Показывает полную сессию и уточнения."""
     await callback.answer()
+    
+    if db_session is None:
+        await callback.message.edit_text(
+            "❌ Ошибка подключения к базе данных.",
+            reply_markup=None,
+        )
+        return
     
     analysis_id = int(callback.data.split("_")[2])
     
@@ -219,9 +234,16 @@ async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession
 
 
 @router.callback_query(F.data == "back_to_history")
-async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession):
+async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession = None):
     """Возврат к списку сессий."""
     await callback.answer()
+    
+    if db_session is None:
+        await callback.message.edit_text(
+            "❌ Ошибка подключения к базе данных.",
+            reply_markup=None,
+        )
+        return
     
     try:
         result = await db_session.execute(
@@ -275,9 +297,16 @@ async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession
 
 
 @router.callback_query(F.data == "history_refresh")
-async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession):
+async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession = None):
     """Обновление списка сессий."""
     await callback.answer("Обновляю...")
+    
+    if db_session is None:
+        await callback.message.edit_text(
+            "❌ Ошибка подключения к базе данных.",
+            reply_markup=None,
+        )
+        return
     
     try:
         result = await db_session.execute(
@@ -361,9 +390,16 @@ async def confirm_clear_history(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "confirm_clear_history")
-async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
+async def clear_history(callback: CallbackQuery, db_session: AsyncSession = None):
     """Очистка всей истории пользователя."""
     await callback.answer("Удаляю историю...")
+    
+    if db_session is None:
+        await callback.message.edit_text(
+            "❌ Ошибка подключения к базе данных.",
+            reply_markup=None,
+        )
+        return
     
     try:
         result = await db_session.execute(
@@ -390,7 +426,7 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
             )
             return
         
-        # Удаляем все анализы (каскадно удалятся и уточнения, если настроено в БД)
+        # Удаляем все анализы
         for analysis in analyses:
             await db_session.delete(analysis)
         
@@ -403,7 +439,6 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
             parse_mode="HTML",
         )
         
-        # Показываем главное меню
         await callback.message.answer(
             "Главное меню:",
             reply_markup=get_main_menu_keyboard(),

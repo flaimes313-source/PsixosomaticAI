@@ -146,7 +146,7 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
     elif action == "history":
         await callback.message.delete()
         from app.bot.handlers.history import show_history
-        await show_history(callback.message, db_session)  # ← db_session передаётся
+        await show_history(callback.message, db_session, state)  # ← ИСПРАВЛЕНО: передаём state
     
     elif action == "privacy":
         privacy_text = (
@@ -196,14 +196,7 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
         )
 
 
-# УДАЛЯЕМ ДУБЛИРУЮЩИЕСЯ ОБРАБОТЧИКИ, так как они уже есть в других файлах:
-# - reminders_back_to_profile (есть в reminders.py)
-# - settings_back_to_profile (есть в settings.py)
-# - pro_back_to_profile (есть в pro.py)
-# - privacy_back_to_profile (есть в privacy.py)
-# - help_back_to_profile (есть в help.py)
-
-# Оставляем только общий обработчик возврата в профиль
+# Универсальный возврат в профиль
 @router.callback_query(F.data == "back_to_profile")
 async def back_to_profile_generic(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Универсальный возврат в профиль."""
@@ -213,7 +206,7 @@ async def back_to_profile_generic(callback: CallbackQuery, state: FSMContext, db
     await show_profile(callback.message, state, db_session)
 
 
-# И добавляем обработчик для кнопки "Назад" в истории
+# Возврат в профиль из истории
 @router.callback_query(F.data == "history_back_to_profile")
 async def history_back_to_profile(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Возврат в профиль из истории."""
