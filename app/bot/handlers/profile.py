@@ -153,7 +153,8 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
     elif action == "history":
         await callback.message.delete()
         from app.bot.handlers.history import show_history
-        await show_history(callback.message, db_session, state)
+        # ============ ИСПРАВЛЕНО: передаём callback, а не callback.message ============
+        await show_history(callback, db_session, state)
     
     elif action == "privacy":
         privacy_text = (
