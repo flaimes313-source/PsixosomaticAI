@@ -3,7 +3,7 @@
 """
 from aiogram import Router, types, F
 from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext  # ← ДОБАВЛЕНО
+from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -50,10 +50,14 @@ def get_analysis_buttons(analyses: list, user_tz) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+# ==================== ИСПРАВЛЕНО: добавлен FSMContext ====================
 @router.message(Command("history"))
 @router.message(F.text == "📋 История анализов")
-async def show_history(message: types.Message, db_session: AsyncSession):
+async def show_history(message: types.Message, db_session: AsyncSession, state: FSMContext = None):
     """Показывает историю сессий пользователя."""
+    if state:
+        await state.clear()
+    
     telegram_id = message.from_user.id
     
     try:
@@ -108,6 +112,7 @@ async def show_history(message: types.Message, db_session: AsyncSession):
         )
 
 
+# ==================== ИСПРАВЛЕНО: добавлена обработка ошибки при удалении сообщения ====================
 @router.callback_query(F.data.startswith("analysis_view_"))
 async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession):
     """Показывает полную сессию и уточнения."""
@@ -385,6 +390,7 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
             )
             return
         
+        # Удаляем все анализы (каскадно удалятся и уточнения, если настроено в БД)
         for analysis in analyses:
             await db_session.delete(analysis)
         
@@ -397,8 +403,9 @@ async def clear_history(callback: CallbackQuery, db_session: AsyncSession):
             parse_mode="HTML",
         )
         
+        # Показываем главное меню
         await callback.message.answer(
-            "👤 Профиль",
+            "Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )
         
@@ -425,7 +432,12 @@ async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContex
     await state.clear()
     
     from app.bot.handlers.profile import show_profile
-    await callback.message.delete()
+    
+    try:
+        await callback.message.delete()
+    except Exception as e:
+        logger.warning(f"Could not delete message: {e}")
+    
     await show_profile(callback.message, state, db_session)
 
 
@@ -439,14 +451,10 @@ async def back_to_main_menu(callback: CallbackQuery):
             "Главное меню:",
             reply_markup=None,
         )
-        await callback.message.answer(
-            "Главное меню:",
-            reply_markup=get_main_menu_keyboard(),
-        )
     except Exception as e:
-        logger.error(f"Error in back_to_menu: {e}")
-        await callback.message.delete()
-        await callback.message.answer(
-            "Главное меню:",
-            reply_markup=get_main_menu_keyboard(),
-        )
+        logger.warning(f"Could not edit message: {e}")
+    
+    await callback.message.answer(
+        "Главное меню:",
+        reply_markup=get_main_menu_keyboard(),
+    )
