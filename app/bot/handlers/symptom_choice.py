@@ -1,5 +1,5 @@
 """
-Обработчик для кнопки "🤔 Что я чувствую в теле?".
+Обработчик для кнопки "🩺 Что я чувствую в теле".
 Выбор симптома из списка → запуск психоблока.
 """
 from aiogram import Router, types, F
@@ -13,14 +13,8 @@ from app.bot.keyboards.symptom_choice import (
     get_symptoms_by_category_keyboard,
     get_symptom_choice_back_keyboard,
 )
-from app.bot.keyboards.symptom import get_duration_keyboard  # ← Добавлен импорт
+from app.bot.keyboards.symptom import get_duration_keyboard
 from app.bot.keyboards import get_main_menu_keyboard
-
-# 🔥 ВРЕМЕННО ЗАКОММЕНТИРОВАНЫ (будут добавлены позже при реализации полноценного психоблока)
-# from app.services.symptom_service import SymptomService
-# from app.services.ai_service import AIService
-# from app.bot.handlers.symptom_analysis import start_symptom_analysis_flow
-
 from app.utils.logging import logger
 
 router = Router()
@@ -40,19 +34,31 @@ SYMPTOM_CATEGORIES = {
 }
 
 
-@router.message(F.text == "🤔 Что я чувствую в теле?")
-async def show_symptom_categories(message: types.Message, state: FSMContext):
-    """Показывает категории симптомов."""
+# ==================== НОВАЯ ФУНКЦИЯ ДЛЯ ВЫЗОВА ИЗ MENU.PY ====================
+
+async def start_symptom_choice(message: types.Message, state: FSMContext, db_session: AsyncSession = None):
+    """
+    Запускает сценарий 'Что я чувствую в теле'.
+    Вызывается из menu.py.
+    """
     await state.clear()
     await state.set_state(SymptomChoiceStates.choosing_category)
     
     await message.answer(
-        "🤔 <b>Что я чувствую в теле?</b>\n\n"
+        "🩺 <b>Что я чувствую в теле?</b>\n\n"
         "Выбери категорию симптома:",
         reply_markup=get_symptom_categories_keyboard(),
         parse_mode="HTML",
     )
     logger.info(f"User opened symptom choice: {message.from_user.id}")
+
+
+# ==================== ОСНОВНОЙ ОБРАБОТЧИК ====================
+
+@router.message(F.text == "🩺 Что я чувствую в теле")
+async def show_symptom_categories(message: types.Message, state: FSMContext):
+    """Показывает категории симптомов."""
+    await start_symptom_choice(message, state)
 
 
 @router.callback_query(SymptomChoiceStates.choosing_category, F.data.startswith("symptom_cat_"))
@@ -78,7 +84,7 @@ async def process_category_selection(callback: CallbackQuery, state: FSMContext)
     await state.set_state(SymptomChoiceStates.choosing_symptom)
     
     await callback.message.edit_text(
-        f"🤔 <b>{category_name}</b>\n\n"
+        f"🩺 <b>{category_name}</b>\n\n"
         "Выбери конкретный симптом:",
         reply_markup=get_symptoms_by_category_keyboard(category_key, symptoms),
         parse_mode="HTML",
@@ -108,8 +114,7 @@ async def process_symptom_selection(callback: CallbackQuery, state: FSMContext, 
     # Сохраняем выбранный симптом
     await state.update_data(chosen_symptom=symptom)
     
-    # 🟡 ВРЕМЕННО: используем существующий flow из symptom.py
-    # Позже здесь будет полноценный психоблок
+    # Запускаем психоблок
     await start_psychoblock(callback.message, state, db_session, symptom)
 
 
@@ -154,7 +159,7 @@ async def back_to_categories(callback: CallbackQuery, state: FSMContext):
     await state.set_state(SymptomChoiceStates.choosing_category)
     
     await callback.message.edit_text(
-        "🤔 <b>Что я чувствую в теле?</b>\n\n"
+        "🩺 <b>Что я чувствую в теле?</b>\n\n"
         "Выбери категорию симптома:",
         reply_markup=get_symptom_categories_keyboard(),
         parse_mode="HTML",
@@ -174,14 +179,13 @@ async def cancel_symptom_choice(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== ПСИХОБЛОК (временная заглушка) ====================
+# ==================== ПСИХОБЛОК ====================
 
 async def start_psychoblock(message: types.Message, state: FSMContext, db_session: AsyncSession, symptom: str):
     """
-    🟡 ВРЕМЕННАЯ ЗАГЛУШКА: перенаправляет в существующий анализ симптома.
-    🔥 ПОЗЖЕ: здесь будет полноценный психоблок с уточняющими вопросами и AI.
+    Запускает психоблок с уточняющими вопросами.
     """
-    # Временно используем существующую логику из symptom.py
+    # Используем существующую логику из symptom.py
     await state.update_data(symptom=symptom)
     await state.set_state(SymptomAnalysisStates.waiting_for_duration)
     

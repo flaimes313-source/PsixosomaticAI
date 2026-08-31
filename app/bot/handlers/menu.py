@@ -119,7 +119,7 @@ async def handle_pro_button(message: types.Message, state: FSMContext, db_sessio
     await show_pro_menu(message, state, db_session)
 
 
-# ==================== НОВЫЙ ОБРАБОТЧИК: "🩺 Что я чувствую в теле" ====================
+# ==================== ИСПРАВЛЕНО: "🩺 Что я чувствую в теле" ====================
 
 @router.message(lambda msg: msg.text == "🩺 Что я чувствую в теле")
 async def handle_body_analysis_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
@@ -136,8 +136,6 @@ async def handle_body_analysis_button(message: types.Message, state: FSMContext,
     can_use, limit_message = await access_service.can_use_body_analysis(message.from_user.id)
     
     if not can_use:
-        # Показываем кнопку PRO
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         from app.bot.keyboards.pro import get_pro_locked_keyboard
         
         await message.answer(
@@ -147,9 +145,9 @@ async def handle_body_analysis_button(message: types.Message, state: FSMContext,
         )
         return
     
-    # Запускаем сценарий
-    from app.bot.handlers.symptom_choice import start_symptom_choice
-    await start_symptom_choice(message, state, db_session)
+    # ==================== ИСПРАВЛЕНО: используем symptom.py ====================
+    from app.bot.handlers.symptom import start_symptom_analysis
+    await start_symptom_analysis(message, state)
 
 
 # ==================== НОВЫЙ ОБРАБОТЧИК: "🧠 Помогите разобраться" ====================
@@ -162,7 +160,6 @@ async def handle_help_dialog_button(message: types.Message, state: FSMContext, d
     """
     logger.info(f"User requested help dialog via button: telegram_id={message.from_user.id}")
     
-    # Перенаправляем в help_me.py
     from app.bot.handlers.help_me import start_help_dialog
     await start_help_dialog(message, state, db_session)
 
