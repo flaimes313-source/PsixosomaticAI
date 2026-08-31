@@ -34,7 +34,6 @@ async def start_help_dialog(message: types.Message, state: FSMContext, db_sessio
     can_use, limit_message = await access_service.can_use_help_dialog(telegram_id)
     
     if not can_use:
-        # Показываем кнопку PRO
         pro_keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(
@@ -62,6 +61,7 @@ async def start_help_dialog(message: types.Message, state: FSMContext, db_sessio
     await state.update_data(
         session_id=session_id,
         is_active=True,
+        is_first_message=True,  # ← ФЛАГ ДЛЯ ПЕРВОГО СООБЩЕНИЯ
         messages=[],
     )
     await state.set_state(HelpDialogStates.waiting_for_message)
@@ -108,6 +108,7 @@ async def process_help_message(message: types.Message, state: FSMContext, db_ses
     # ==================== ПОЛУЧАЕМ ДАННЫЕ ИЗ FSM ====================
     data = await state.get_data()
     session_id = data.get("session_id")
+    is_first_message = data.get("is_first_message", True)  # ← ФЛАГ
     messages_history = data.get("messages", [])
     # ================================================================
     
@@ -165,6 +166,14 @@ async def process_help_message(message: types.Message, state: FSMContext, db_ses
                 content=ai_answer,
             )
             # ============================================================
+            
+            # ==================== УВЕЛИЧИВАЕМ СЧЁТЧИК (ТОЛЬКО ДЛЯ ПЕРВОГО СООБЩЕНИЯ) ====================
+            if is_first_message:
+                access_service = AccessService(db_session)
+                await access_service.increment_help_analysis(telegram_id)
+                await state.update_data(is_first_message=False)
+                logger.info(f"HELP_ANALYSIS_COUNT incremented for user: {telegram_id}")
+            # ============================================================================================
             
             # ==================== ОБНОВЛЯЕМ FSM ====================
             await state.update_data(messages=messages_history + [
