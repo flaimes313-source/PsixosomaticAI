@@ -525,6 +525,8 @@ async def _clear_history_internal(callback: CallbackQuery, db_session: AsyncSess
         )
 
 
+# ==================== ИСПРАВЛЕНО: возврат в профиль ====================
+
 @router.callback_query(F.data == "back_to_profile_from_history")
 async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Возврат в профиль из истории сессий."""
@@ -533,12 +535,21 @@ async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContex
     
     from app.bot.handlers.profile import show_profile
     
+    # ==================== ИСПРАВЛЕНО ====================
+    # Создаём фейковое сообщение с правильным from_user.id
+    class FakeMessage:
+        def __init__(self, user_id):
+            self.from_user = type('obj', (object,), {'id': user_id})
+    
+    fake_message = FakeMessage(callback.from_user.id)
+    # ====================================================
+    
     try:
         await callback.message.delete()
     except Exception as e:
         logger.warning(f"Could not delete message: {e}")
     
-    await show_profile(callback.message, state, db_session)
+    await show_profile(fake_message, state, db_session)
 
 
 @router.callback_query(F.data == "back_to_menu")
