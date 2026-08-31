@@ -164,17 +164,17 @@ async def handle_help_dialog_button(message: types.Message, state: FSMContext, d
     await start_help_dialog(message, state, db_session)
 
 
-# ==================== ОБРАБОТЧИК: "📖 Как это работает?" ====================
+# ==================== ИСПРАВЛЕНО: "📖 Как это работает?" ====================
 
 @router.message(lambda msg: msg.text == "📖 Как это работает?")
-async def handle_how_it_works_button(message: types.Message, db_session: AsyncSession):
+async def handle_how_it_works_button(message: types.Message, state: FSMContext):
     """
     Обработчик кнопки '📖 Как это работает?'.
     """
     logger.info(f"User requested how it works via button: telegram_id={message.from_user.id}")
     
     from app.bot.handlers.how_it_works import show_how_it_works
-    await show_how_it_works(message, db_session)
+    await show_how_it_works(message, state)
 
 
 # ==================== ОБРАБОТЧИК: "👤 Профиль" ====================
