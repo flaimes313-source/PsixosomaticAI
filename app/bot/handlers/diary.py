@@ -24,12 +24,12 @@ from app.bot.keyboards.diary import (
     get_confirm_delete_keyboard,
     get_date_navigation_keyboard,
 )
-from app.bot.keyboards.pro import get_pro_locked_keyboard  # ← НОВЫЙ ИМПОРТ
+from app.bot.keyboards.pro import get_pro_locked_keyboard
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.repositories.diary import DiaryRepository
 from app.db.models.user import User
-from app.services.access_service import AccessService  # ← НОВЫЙ ИМПОРТ
-from app.services.usage_service import UsageService     # ← НОВЫЙ ИМПОРТ
+from app.services.access_service import AccessService
+from app.services.usage_service import UsageService
 from app.utils.logging import logger
 
 router = Router()
@@ -78,29 +78,26 @@ async def start_new_diary_entry(message: types.Message, state: FSMContext, db_se
     """Начинает создание новой дневниковой записи."""
     await state.clear()
     
-    user_id = message.from_user.id
+    telegram_id = message.from_user.id
     
-    # Проверяем лимит записей
+    # ==================== НОВАЯ ПРОВЕРКА ЛИМИТА ====================
     access_service = AccessService(db_session)
-    can_create = await access_service.can_create_diary_entry(user_id)
+    can_use, limit_message = await access_service.can_add_diary_entry(telegram_id)
     
-    if not can_create:
+    if not can_use:
         # Проверяем, PRO ли пользователь
-        is_pro = await access_service.is_pro(user_id)
+        is_pro = await access_service.is_pro(telegram_id)
         if is_pro:
             # Если PRO, то ошибка в другом месте (не должно происходить)
-            logger.warning(f"PRO user {user_id} hit diary limit?")
+            logger.warning(f"PRO user {telegram_id} hit diary limit?")
         else:
             await message.answer(
-                "📔 <b>Лимит записей в дневнике исчерпан</b>\n\n"
-                "В бесплатной версии можно создать до 30 записей.\n"
-                "Ты уже использовал все 30 записей.\n\n"
-                "⭐ Переходи на PRO, чтобы вести дневник без ограничений!\n\n"
-                "Нажми кнопку ниже, чтобы узнать больше:",
+                limit_message,
                 reply_markup=get_pro_locked_keyboard(),
                 parse_mode="HTML",
             )
             return
+    # ==============================================================
     
     await state.set_state(DiaryStates.waiting_for_symptom)
     
@@ -453,11 +450,12 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
     await callback.answer()
     
     data = await state.get_data()
+    telegram_id = callback.from_user.id
     
     try:
         # Находим пользователя
         result = await db_session.execute(
-            select(User).where(User.telegram_id == callback.from_user.id)
+            select(User).where(User.telegram_id == telegram_id)
         )
         user = result.scalar_one_or_none()
         
@@ -467,6 +465,19 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
                 reply_markup=None,
             )
             return
+        
+        # ==================== ПРОВЕРКА ЛИМИТА ПЕРЕД СОХРАНЕНИЕМ ====================
+        access_service = AccessService(db_session)
+        can_use, limit_message = await access_service.can_add_diary_entry(telegram_id)
+        
+        if not can_use:
+            await callback.message.edit_text(
+                limit_message,
+                reply_markup=get_pro_locked_keyboard(),
+                parse_mode="HTML",
+            )
+            return
+        # ========================================================================
         
         # Создаем запись
         diary_repo = DiaryRepository(db_session)
@@ -483,6 +494,10 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
             analysis_id=data.get('analysis_id'),
         )
         
+        # ==================== УВЕЛИЧИВАЕМ СЧЁТЧИК ====================
+        await access_service.increment_diary_entries(telegram_id)
+        # =============================================================
+        
         await state.clear()
         
         # Получаем часовой пояс пользователя
@@ -490,13 +505,19 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
         created_at_local = entry.created_at.astimezone(user_tz)
         time_str = created_at_local.strftime("%H:%M")
         
+        # Получаем текущий счётчик для отображения
+        remaining = 10 - user.diary_entries_count
+        if remaining < 0:
+            remaining = 0
+        
         await callback.message.edit_text(
             f"✅ Запись сохранена!\n\n"
             f"📅 {entry.entry_date.strftime('%d.%m.%Y')} {time_str}\n"
             f"🩺 {entry.symptom} — {entry.symptom_intensity}/10\n"
             f"🙂 Настроение: {entry.mood}/5\n"
             f"😰 Стресс: {entry.stress}/10\n"
-            f"😴 Сон: {entry.sleep_hours} ч",
+            f"😴 Сон: {entry.sleep_hours} ч\n"
+            f"\n📊 Осталось бесплатных записей: {remaining}/10",
             reply_markup=None,
         )
         
@@ -506,7 +527,7 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
             reply_markup=get_diary_menu_keyboard(),
         )
         
-        logger.info(f"Diary entry saved: user_id={user.id}, id={entry.id}")
+        logger.info(f"Diary entry saved: user_id={user.id}, id={entry.id}, count={user.diary_entries_count}")
         
     except Exception as e:
         logger.error(f"Error saving diary entry: {e}")

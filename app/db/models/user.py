@@ -59,6 +59,19 @@ class User(Base):
     
     timezone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="UTC")
 
+    # ==================== НОВЫЕ ПОЛЯ ДЛЯ СЧЁТЧИКОВ ====================
+    # Счётчик для "Что я чувствую в теле" (месячный)
+    body_analysis_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    body_analysis_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)  # Формат: YYYY-MM
+    
+    # Счётчик для "Помогите разобраться" (месячный)
+    help_analysis_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    help_analysis_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)  # Формат: YYYY-MM
+    
+    # Счётчик для дневника (общий, не сбрасывается)
+    diary_entries_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # ================================================================
+
     # Связи
     analyses: Mapped[List["Analysis"]] = relationship(
         "Analysis",

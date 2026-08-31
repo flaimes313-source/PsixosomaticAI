@@ -16,7 +16,8 @@ from app.bot.handlers import (
     settings as settings_handler, diary,
     dynamics_handler, reminders_handler, pro_handler,
     admin_handler, support_handler, profile_handler,
-    how_it_works_handler, symptom_choice_handler, quick_start_handler  # ← ДОБАВЛЕН quick_start_handler
+    how_it_works_handler, symptom_choice_handler, quick_start_handler,
+    help_me,  # ← НОВЫЙ ИМПОРТ
 )
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
@@ -95,7 +96,8 @@ async def main() -> None:
     dp.include_router(profile_handler.router)  # Профиль
     dp.include_router(how_it_works_handler.router)  # "Как это работает?"
     dp.include_router(symptom_choice_handler.router)  # "Что я чувствую в теле?"
-    dp.include_router(quick_start_handler.router)  # ← НОВЫЙ: "Помогите разобраться"
+    dp.include_router(quick_start_handler.router)  # "Помогите разобраться" (старая версия)
+    dp.include_router(help_me.router)          # ← НОВЫЙ: "Помогите разобраться" (свободный AI-диалог)
     dp.include_router(cancel.router)           # Команда /cancel
     dp.include_router(history.router)          # История анализов
     dp.include_router(errors_router)           # Глобальный обработчик ошибок

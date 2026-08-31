@@ -92,7 +92,7 @@ async def handle_dynamics_button(message: types.Message, state: FSMContext, db_s
     logger.info(f"User requested dynamics via button: telegram_id={message.from_user.id}")
     
     from app.bot.handlers.dynamics import show_dynamics_menu
-    await show_dynamics_menu(message, state, db_session)  # ← ИСПРАВЛЕНО
+    await show_dynamics_menu(message, state, db_session)
 
 
 @router.message(lambda msg: msg.text == "🔔 Напоминания")
@@ -103,15 +103,104 @@ async def handle_reminders_button(message: types.Message, state: FSMContext, db_
     logger.info(f"User requested reminders via button: telegram_id={message.from_user.id}")
     
     from app.bot.handlers.reminders import show_reminders_menu
-    await show_reminders_menu(message, state, db_session)  # ← ИСПРАВЛЕНО
+    await show_reminders_menu(message, state, db_session)
 
 
-@router.message(lambda msg: msg.text == "⭐ PRO")
+# ==================== ИЗМЕНЕНО: "⭐ PRO" → "⭐ Сома. PRO" ====================
+
+@router.message(lambda msg: msg.text == "⭐ Сома. PRO")
 async def handle_pro_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """
-    Обработчик кнопки 'PRO'.
+    Обработчик кнопки '⭐ Сома. PRO'.
     """
     logger.info(f"User requested PRO via button: telegram_id={message.from_user.id}")
     
     from app.bot.handlers.pro import show_pro_menu
-    await show_pro_menu(message, state, db_session)  # ← ДОБАВЛЕНО
+    await show_pro_menu(message, state, db_session)
+
+
+# ==================== НОВЫЙ ОБРАБОТЧИК: "🩺 Что я чувствую в теле" ====================
+
+@router.message(lambda msg: msg.text == "🩺 Что я чувствую в теле")
+async def handle_body_analysis_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """
+    Обработчик кнопки '🩺 Что я чувствую в теле'.
+    Запускает анализ симптома.
+    """
+    logger.info(f"User requested body analysis via button: telegram_id={message.from_user.id}")
+    
+    # Проверяем лимит через AccessService
+    from app.services.access_service import AccessService
+    
+    access_service = AccessService(db_session)
+    can_use, limit_message = await access_service.can_use_body_analysis(message.from_user.id)
+    
+    if not can_use:
+        # Показываем кнопку PRO
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        from app.bot.keyboards.pro import get_pro_locked_keyboard
+        
+        await message.answer(
+            limit_message,
+            reply_markup=get_pro_locked_keyboard(),
+            parse_mode="HTML",
+        )
+        return
+    
+    # Запускаем сценарий
+    from app.bot.handlers.symptom_choice import start_symptom_choice
+    await start_symptom_choice(message, state, db_session)
+
+
+# ==================== НОВЫЙ ОБРАБОТЧИК: "🧠 Помогите разобраться" ====================
+
+@router.message(lambda msg: msg.text == "🧠 Помогите разобраться")
+async def handle_help_dialog_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """
+    Обработчик кнопки '🧠 Помогите разобраться'.
+    Запускает свободный AI-диалог.
+    """
+    logger.info(f"User requested help dialog via button: telegram_id={message.from_user.id}")
+    
+    # Перенаправляем в help_me.py
+    from app.bot.handlers.help_me import start_help_dialog
+    await start_help_dialog(message, state, db_session)
+
+
+# ==================== ОБРАБОТЧИК: "📖 Как это работает?" ====================
+
+@router.message(lambda msg: msg.text == "📖 Как это работает?")
+async def handle_how_it_works_button(message: types.Message, db_session: AsyncSession):
+    """
+    Обработчик кнопки '📖 Как это работает?'.
+    """
+    logger.info(f"User requested how it works via button: telegram_id={message.from_user.id}")
+    
+    from app.bot.handlers.how_it_works import show_how_it_works
+    await show_how_it_works(message, db_session)
+
+
+# ==================== ОБРАБОТЧИК: "👤 Профиль" ====================
+
+@router.message(lambda msg: msg.text == "👤 Профиль")
+async def handle_profile_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """
+    Обработчик кнопки '👤 Профиль'.
+    """
+    logger.info(f"User requested profile via button: telegram_id={message.from_user.id}")
+    
+    from app.bot.handlers.profile import show_profile
+    await show_profile(message, state, db_session)
+
+
+# ==================== ОБРАБОТЧИК: "❓ Поддержка" ====================
+
+@router.message(lambda msg: msg.text == "❓ Поддержка")
+async def handle_support_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """
+    Обработчик кнопки '❓ Поддержка'.
+    """
+    logger.info(f"User requested support via button: telegram_id={message.from_user.id}")
+    
+    from app.bot.handlers.support import show_support
+    await show_support(message, state, db_session)

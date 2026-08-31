@@ -1,7 +1,8 @@
 """
-Enum для фич и ограничений.
+Enum для фич и ограничений + числовые лимиты FREE/PRO.
 """
 from enum import Enum, auto
+from typing import Optional
 
 
 class Feature(str, Enum):
@@ -52,3 +53,31 @@ FEATURE_ACCESS = {
 def get_feature_access(feature: Feature) -> AccessLevel:
     """Получить уровень доступа для фичи."""
     return FEATURE_ACCESS.get(feature, AccessLevel.FREE)
+
+
+# ==================== НОВЫЕ ЧИСЛОВЫЕ ЛИМИТЫ ====================
+# Эти лимиты используются для счётчиков в AccessService
+
+class FreeLimits:
+    """Числовые лимиты для FREE-пользователей."""
+    
+    # "Что я чувствую в теле" — 1 анализ в месяц
+    BODY_ANALYSES_PER_MONTH: int = 1
+    
+    # "Помогите разобраться" — 1 сессия в месяц
+    HELP_SESSIONS_PER_MONTH: int = 1
+    
+    # Дневник — всего 10 записей (не сбрасывается ежемесячно)
+    DIARY_ENTRIES_TOTAL: int = 10
+    
+    # Уточняющие вопросы после анализа — 3 штуки
+    CLARIFICATIONS_PER_BODY: int = 3
+
+
+class ProLimits:
+    """Числовые лимиты для PRO-пользователей (None = безлимит)."""
+    
+    BODY_ANALYSES_PER_MONTH: Optional[int] = None
+    HELP_SESSIONS_PER_MONTH: Optional[int] = None
+    DIARY_ENTRIES_TOTAL: Optional[int] = None
+    CLARIFICATIONS_PER_BODY: Optional[int] = None

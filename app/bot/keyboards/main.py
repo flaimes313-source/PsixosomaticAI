@@ -11,14 +11,14 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     
     builder.add(
         # === ПСИХОБЛОК ===
-        KeyboardButton(text="🤔 Что я чувствую в теле?"),
-        KeyboardButton(text="💡 Помогите разобраться"),
+        KeyboardButton(text="🩺 Что я чувствую в теле"),  # ← ИЗМЕНЕНО: эмодзи и без "?"
+        KeyboardButton(text="🧠 Помогите разобраться"),
         
         # === ИНФО ===
         KeyboardButton(text="📖 Как это работает?"),
         
         # === КОММЕРЦИЯ ===
-        KeyboardButton(text="⭐ PRO"),
+        KeyboardButton(text="⭐ Сома. PRO"),  # ← ИЗМЕНЕНО: название как в ТЗ
         
         # === ИНСТРУМЕНТЫ ===
         KeyboardButton(text="📔 Дневник"),

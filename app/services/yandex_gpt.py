@@ -91,19 +91,21 @@ class YandexGPTClient:
             "Content-Type": "application/json",
         }
 
+    # ==================== ИЗМЕНЕНО: добавляем temperature и max_tokens ====================
     def _build_payload(
         self,
         system_prompt: str,
         user_prompt: str,
+        temperature: float = 0.3,
+        max_tokens: int = 2000,
     ) -> dict[str, Any]:
-        """Формирует тело запроса."""
-
+        """Формирует тело запроса с параметрами."""
         return {
             "modelUri": self.model_uri,
             "completionOptions": {
                 "stream": False,
-                "temperature": 0.3,
-                "maxTokens": 2000,
+                "temperature": temperature,
+                "maxTokens": max_tokens,
             },
             "messages": [
                 {
@@ -154,13 +156,22 @@ class YandexGPTClient:
                 "Не удалось разобрать ответ YandexGPT."
             ) from exc
 
+    # ==================== ИЗМЕНЕНО: добавлены параметры temperature и max_tokens ====================
     async def generate(
         self,
         system_prompt: str,
         user_prompt: str,
+        temperature: float = 0.3,
+        max_tokens: int = 2000,
     ) -> str:
         """
         Отправляет запрос в YandexGPT и возвращает текст ответа.
+
+        Параметры:
+            system_prompt: Системный промпт
+            user_prompt: Пользовательский промпт
+            temperature: Температура (0.0 - 1.0). По умолчанию 0.3.
+            max_tokens: Максимальное количество токенов в ответе. По умолчанию 2000.
 
         При временных ошибках выполняется retry.
         """
@@ -168,14 +179,18 @@ class YandexGPTClient:
         payload = self._build_payload(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
 
         headers = self._build_headers()
 
         logger.info(
-            "YandexGPT request started: "
+            f"YandexGPT request started: "
             f"model={self.model}, "
-            f"folder_id={self.folder_id}"
+            f"folder_id={self.folder_id}, "
+            f"temperature={temperature}, "
+            f"max_tokens={max_tokens}"
         )
 
         last_error: Optional[Exception] = None

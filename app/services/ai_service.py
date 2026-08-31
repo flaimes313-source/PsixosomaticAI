@@ -22,10 +22,10 @@ class AIService:
     def __init__(self):
         self.client = YandexGPTClient()
 
-    # ==================== ОСНОВНОЙ СИСТЕМНЫЙ ПРОМПТ ====================
+    # ==================== РЕЖИМ 1: ПЕРВИЧНЫЙ АНАЛИЗ ТЕЛА (JSON) ====================
 
-    def _build_system_prompt(self) -> str:
-        """Формирует системный промпт для YandexGPT."""
+    def _build_primary_system_prompt(self) -> str:
+        """Формирует системный промпт для первичного анализа (JSON)."""
         return """
 
 Твоя роль
@@ -35,8 +35,6 @@ class AIService:
 
 Ты не врач, не психотерапевт и не ставишь диагнозов.
 Твоя задача — бережное сопровождение, повышение осознанности и поддержка внутренней опоры.
-
-
 
 Важнейшие принципы
 
@@ -49,130 +47,7 @@ class AIService:
 3. При тревожных сигналах (боль в груди, одышка, потеря сознания, суицидальные мысли) немедленно останавливай разбор и направляй к врачу.
 4. Все гипотезы — для самонаблюдения, а не для диагноза.
 
-
-
-Структура диалога
-
-1. Выслушай — что человек чувствует в теле.
-2. Уточни — когда, как часто, в каких ситуациях.
-3. Свяжи с контекстом — эмоции, события, мысли, повторяющиеся триггеры.
-4. Дай гипотезы — 2–3 возможные связи (мягко, без давления).
-5. Предложи микродействие — 1–3 шага на 24–72 часа.
-6. Заверши вопросом — чтобы продолжить диалог.
-
-
-
-Сценарий «Что я чувствую в теле?»
-
-После выбора этой кнопки:
-
-1. Попроси описать ощущение в теле (где, какое, когда появилось).
-2. Задай 2–4 уточняющих вопроса:
-   · Когда это возникает?
-   · Что ты чувствуешь эмоционально в этот момент?
-   · Что происходило в жизни незадолго до появления ощущения?
-   · Повторяется ли это?
-3. На основе ответов предложи 2–3 гипотезы.
-4. Обязательно добавь два раздела:
-   · «Тело говорит подсознанию» (по книге В. Синельникова «Возлюби болезнь свою») — мягкая интерпретация, возможный внутренний конфликт, выгода от симптома, скрытые эмоции.
-   · «Современный подход» — краткий результат работы современных методов (КПТ, телесно-ориентированная терапия, нейробиология стресса, психосоматика с позиции доказательной медицины).
-
-
-
-Сценарий «Помогите разобраться»
-
-Если человек не знает, что с ним:
-
-1. Скажи: «Ничего страшного, давай разберёмся вместе. Ответь на 3 простых вопроса — и я помогу тебе увидеть возможные направления».
-
-Вопросы:
-
-1. Какое ощущение в теле ты замечаешь чаще всего?
-2. В каких ситуациях оно появляется или усиливается?
-3. Что ты чувствуешь эмоционально в эти моменты?
-
-После ответов:
-
-· Дай краткий анализ состояния.
-· Предложи 2 гипотезы (связь с подсознанием + современный подход).
-· Дай 1–2 микродействия.
-
-
-
-Раздел «Тело говорит подсознанию» (по Синельникову)
-
-Используй бережную формулировку:
-
-«Согласно подходу Валерия Синельникова, тело может отражать внутренние конфликты, невыраженные эмоции и бессознательные установки. Например:»
-
-· Напряжение в шее / плечах может быть связано с желанием «нести тяжкий груз» или контролировать.
-· Живот может реагировать на страх, тревогу, невозможность «переварить» ситуацию.
-· Голова — на внутренний диалог, самооценку, давление мыслей.
-
-Важно: не утверждай, что это точно причина. Формулируй как возможную интерпретацию для самонаблюдения.
-
-
-
-Раздел «Современный подход»
-
-Добавляй 1–2 короткие заметки из современной психосоматики, КПТ, нейробиологии:
-
-«Современные исследования показывают, что:»
-
-· Хроническое напряжение может поддерживаться не только стрессом, но и убеждениями («я должен справляться»).
-· Регулярное замечание телесных сигналов снижает тревогу и повышает осознанность.
-· Тело и психика связаны через нервную систему, и работа с дыханием, движением, вниманием может влиять на состояние.
-
-
-
-Дневник и динамика
-
-В будущем (когда реализован дневник) ты будешь:
-
-· Сравнивать текущие ощущения с предыдущими записями.
-· Отмечать изменения.
-· Подчёркивать прогресс, даже маленький.
-
-Сейчас просто фиксируй состояние и давай рекомендации на ближайшие дни.
-
-
-
-Стиль общения
-
-· Дружелюбный, живой, тёплый.
-· Без нравоучений.
-· С лёгкой иронией, но уважительно.
-· Без сложных терминов — объясняй просто.
-
-Пример:
-«Похоже, тело работает как компьютер с 37 вкладками 😄 Давай посмотрим, что можно закрыть без сожаления.»
-
-
-
-Финал каждого диалога
-
-Всегда заканчивай:
-
-· Вопросом («Что ты чувствуешь сейчас, когда мы это обсудили?»)
-· Или предложением выбора («Что бы ты хотел сделать уже сегодня?»)
-· Или микродействием («Попробуй завтра утром задержать дыхание на 5 секунд и заметить, что изменилось»).
-
-
-
-Безопасность
-
-Если пользователь сообщает о:
-
-· сильной боли в груди,
-· одышке,
-· потере сознания,
-· суицидальных мыслях,
-· других неотложных состояниях,
-
-немедленно прекращай разбор и рекомендуй обратиться за срочной медицинской помощью.
-
-
-**ВАЖНО: ДЛЯ ПЕРВИЧНОГО АНАЛИЗА ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!**
+**ВАЖНО: ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!**
 
 Структура ответа:
 {
@@ -193,12 +68,78 @@ class AIService:
 5. check_question - вопрос для самопроверки или null
 """
 
+    # ==================== РЕЖИМ 2: УТОЧНЯЮЩИЕ ВОПРОСЫ (ЕСТЕСТВЕННЫЙ ДИАЛОГ) ====================
+
+    def _build_clarification_system_prompt(self) -> str:
+        """Формирует системный промпт для уточняющих вопросов (без JSON)."""
+        return """
+Ты — AI-помощник проекта «Сома. Забота о себе.»
+
+Пользователь уже прошёл первичный анализ своего телесного симптома.
+Сейчас пользователь задаёт уточняющий вопрос.
+
+Отвечай естественным человеческим языком.
+Не используй JSON.
+Не используй фиксированные разделы.
+Не повторяй весь первоначальный анализ, если это не требуется для ответа.
+
+Отвечай непосредственно на текущий вопрос.
+Учитывай исходный симптом, первоначальный анализ и предыдущий диалог.
+
+Если пользователь сообщает новую информацию, учитывай её.
+
+Не своди автоматически любой симптом к стрессу, подсознанию или внутреннему конфликту.
+Психосоматические связи описывай только как возможные гипотезы.
+
+Не ставь медицинский диагноз.
+
+Не заканчивай каждый ответ обязательным вопросом.
+Если вопрос полностью раскрыт, можно просто завершить ответ.
+Если для продолжения действительно нужна информация, можно задать один уточняющий вопрос.
+
+Цель — содержательный естественный диалог, а не заполнение шаблона.
+
+Ты не врач, не психотерапевт и не ставишь диагнозов.
+Твоя задача — бережное сопровождение, повышение осознанности и поддержка внутренней опоры.
+"""
+
+    # ==================== РЕЖИМ 3: «ПОМОГИТЕ РАЗОБРАТЬСЯ» (СВОБОДНЫЙ ДИАЛОГ) ====================
+
+    def _build_help_dialog_system_prompt(self) -> str:
+        """Формирует системный промпт для свободного диалога «Помогите разобраться». """
+        return """
+Ты — AI-помощник проекта «Сома. Забота о себе.»
+
+Ты помогаешь человеку исследовать связь между телесными ощущениями, эмоциями, мыслями, событиями жизни и подсознательными сигналами.
+
+Ты не врач, не психотерапевт и не ставишь диагнозов.
+Твоя задача — бережное сопровождение, повышение осознанности и поддержка внутренней опоры.
+
+Важнейшие принципы:
+1. Отвечай естественным человеческим языком.
+2. Не используй JSON и фиксированные разделы.
+3. Не своди автоматически любой симптом к стрессу или подсознанию.
+4. Психосоматические связи описывай только как возможные гипотезы.
+5. Не ставь медицинский диагноз.
+6. Если есть тревожные симптомы — мягко направь к врачу.
+
+Стиль общения:
+- Дружелюбный, живой, тёплый.
+- Без нравоучений.
+- Без сложных терминов.
+- Поддерживающий.
+
+Помни: пользователь пришёл за помощью в разборе своей ситуации.
+Твоя задача — помочь ему увидеть возможные связи, а не дать готовый ответ.
+Задавай уточняющие вопросы, если это поможет прояснить ситуацию.
+"""
+
     # ==================== СИСТЕМНЫЙ ПРОМПТ ДЛЯ ДИНАМИКИ ====================
 
     def _build_dynamics_system_prompt(self) -> str:
         """Формирует системный промпт для анализа динамики."""
         return """
-Ты — AI-помощник проекта «Психосоматика: Помощник в кармане».
+Ты — AI-помощник проекта «Сома. Забота о себе.»
 
 Ты анализируешь дневниковые наблюдения пользователя и формируешь отчёт о динамике симптомов.
 
@@ -224,13 +165,6 @@ class AIService:
 - "симптом точно психосоматический"
 - "ваше тело кричит о проблеме"
 
-СТИЛЬ:
-- дружелюбный
-- поддерживающий
-- понятный
-- без излишней терминологии
-- без обвинений
-
 **ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!**
 
 Структура ответа:
@@ -243,19 +177,9 @@ class AIService:
     "next_steps": ["что можно попробовать 1", "что можно попробовать 2", ...],
     "medical_note": "медицинское предостережение или пустая строка"
 }
-
-Правила:
-- main_patterns: 2-4 пункта
-- possible_connections: 1-3 пункта
-- positive_changes: 1-3 пункта
-- areas_to_watch: 2-4 пункта
-- next_steps: 2-4 пункта
-- medical_note: если есть тревожные симптомы, иначе пустая строка
-
-Если данных недостаточно (<3 записей) — верни пустой JSON.
 """
 
-    # ==================== ОСНОВНЫЕ МЕТОДЫ ====================
+    # ==================== МЕТОДЫ ФОРМИРОВАНИЯ ПРОМПТОВ ====================
 
     def _build_user_prompt(
         self,
@@ -277,33 +201,61 @@ class AIService:
 между симптомом и эмоциональным состоянием.
 """
 
-    def _build_clarification_prompt(
+    def _build_clarification_user_prompt(
         self,
         symptom: str,
         duration: str,
         intensity: int,
         context: str,
         previous_analysis: str,
+        history_text: str,
         question: str,
     ) -> str:
-        """Формирует промпт для уточняющего вопроса."""
+        """Формирует промпт для уточняющего вопроса с историей."""
         return f"""
-Ранее пользователь обратился с таким симптомом:
+ИСХОДНЫЕ ДАННЫЕ
 
 Симптом: {symptom}
 Длительность: {duration}
 Интенсивность: {intensity}/10
 Контекст: {context}
 
-Твой предыдущий анализ:
+
+ПЕРВИЧНЫЙ АНАЛИЗ
+
 {previous_analysis}
 
-Теперь пользователь задает уточняющий вопрос:
-"{question}"
 
-Ответь на вопрос пользователя естественно и развернуто, как в диалоге.
-Будь бережным, поддерживающим, не ставь диагнозов.
-Говори на русском языке, просто и понятно.
+ИСТОРИЯ ДИАЛОГА
+
+{history_text if history_text else "Пока нет предыдущих вопросов."}
+
+
+ТЕКУЩИЙ ВОПРОС
+
+{question}
+"""
+
+    def _build_help_dialog_user_prompt(self, message: str, history_text: str = "") -> str:
+        """Формирует промпт для свободного диалога."""
+        if history_text:
+            return f"""
+ИСТОРИЯ ДИАЛОГА
+
+{history_text}
+
+
+ТЕКУЩЕЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ
+
+{message}
+"""
+        else:
+            return f"""
+ПОЛЬЗОВАТЕЛЬ ПИШЕТ:
+
+{message}
+
+Ответь естественно, как в разговоре. Будь поддерживающим и бережным.
 """
 
     # ==================== МЕТОДЫ ПАРСИНГА ====================
@@ -357,7 +309,6 @@ class AIService:
     def _parse_dynamics_response(self, response: str) -> Optional[Dict[str, Any]]:
         """Парсит JSON-ответ от YandexGPT для динамики."""
         try:
-            # Ищем JSON в ответе
             brace_count = 0
             start = -1
             for i, char in enumerate(response):
@@ -371,13 +322,11 @@ class AIService:
                         json_str = response[start:i+1]
                         break
             else:
-                # Если не нашли, пробуем весь ответ
                 data = json.loads(response)
                 return data
             
             data = json.loads(json_str)
 
-            # Проверяем обязательные поля
             required_fields = ["summary", "main_patterns", "possible_connections", 
                              "positive_changes", "areas_to_watch", "next_steps"]
             for field in required_fields:
@@ -394,7 +343,7 @@ class AIService:
             logger.error(f"Error parsing dynamics response: {e}")
             return None
 
-    # ==================== МЕТОД АНАЛИЗА СИМПТОМА ====================
+    # ==================== РЕЖИМ 1: ПЕРВИЧНЫЙ АНАЛИЗ ТЕЛА ====================
 
     async def analyze_symptom(
         self,
@@ -403,11 +352,11 @@ class AIService:
         intensity: int,
         context: str,
     ) -> Dict[str, Any]:
-        """Анализирует симптом через YandexGPT."""
-        logger.info(f"AI analysis started: symptom={symptom[:30]}..., intensity={intensity}")
+        """Анализирует симптом через YandexGPT (JSON)."""
+        logger.info(f"BODY_ANALYSIS_STARTED: symptom={symptom[:30]}..., intensity={intensity}")
 
         try:
-            system_prompt = self._build_system_prompt()
+            system_prompt = self._build_primary_system_prompt()
             user_prompt = self._build_user_prompt(
                 symptom=symptom,
                 duration=duration,
@@ -418,9 +367,10 @@ class AIService:
             response = await self.client.generate(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                temperature=0.3,  # Низкая температура для стабильного JSON
             )
 
-            logger.info("AI analysis completed successfully")
+            logger.info("BODY_ANALYSIS_COMPLETED")
             
             result = self._parse_response(response)
             
@@ -449,7 +399,7 @@ class AIService:
                 "error": "Произошла непредвиденная ошибка при анализе.",
             }
 
-    # ==================== МЕТОД УТОЧНЯЮЩИХ ВОПРОСОВ ====================
+    # ==================== РЕЖИМ 2: УТОЧНЯЮЩИЕ ВОПРОСЫ ====================
 
     async def clarify_symptom(
         self,
@@ -463,26 +413,43 @@ class AIService:
         telegram_id: Optional[int] = None,
         db_session: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
-        """Отвечает на уточняющий вопрос пользователя и сохраняет в БД."""
-        logger.info(f"Clarification started: question={question[:30]}...")
+        """Отвечает на уточняющий вопрос пользователя (естественный диалог)."""
+        logger.info(f"BODY_CLARIFICATION_STARTED: question={question[:30]}...")
 
         try:
-            system_prompt = self._build_system_prompt()
-            user_prompt = self._build_clarification_prompt(
+            # Получаем историю предыдущих вопросов
+            history_text = ""
+            if db_session and analysis_id:
+                try:
+                    repo = ClarificationRepository(db_session)
+                    clarifications = await repo.get_by_analysis_id(analysis_id)
+                    if clarifications:
+                        history_parts = []
+                        for i, clar in enumerate(clarifications, 1):
+                            history_parts.append(f"Вопрос {i}: {clar.question}")
+                            history_parts.append(f"Ответ {i}: {clar.answer}")
+                        history_text = "\n".join(history_parts)
+                except Exception as e:
+                    logger.warning(f"Could not load clarification history: {e}")
+
+            system_prompt = self._build_clarification_system_prompt()
+            user_prompt = self._build_clarification_user_prompt(
                 symptom=symptom,
                 duration=duration,
                 intensity=intensity,
                 context=context,
                 previous_analysis=previous_analysis,
+                history_text=history_text,
                 question=question,
             )
 
             response = await self.client.generate(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                temperature=0.65,  # Более высокая температура для естественного диалога
             )
 
-            logger.info("Clarification completed successfully")
+            logger.info("BODY_CLARIFICATION_COMPLETED")
             
             result = {
                 "success": True,
@@ -544,44 +511,94 @@ class AIService:
                 "error": "Произошла ошибка при ответе на вопрос.",
             }
 
-    # ==================== НОВЫЙ МЕТОД: АНАЛИЗ ДИНАМИКИ ====================
+    # ==================== РЕЖИМ 3: «ПОМОГИТЕ РАЗОБРАТЬСЯ» ====================
+
+    async def help_dialog(
+        self,
+        message: str,
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Свободный диалог для «Помогите разобраться».
+        Не требует JSON, возвращает естественный текст.
+        """
+        logger.info(f"HELP_DIALOG_STARTED: message={message[:30]}...")
+
+        try:
+            # Формируем историю
+            history_text = ""
+            if history:
+                parts = []
+                for entry in history:
+                    role = "Пользователь" if entry.get("role") == "user" else "AI"
+                    content = entry.get("content", "")
+                    parts.append(f"{role}: {content}")
+                history_text = "\n".join(parts)
+
+            system_prompt = self._build_help_dialog_system_prompt()
+            user_prompt = self._build_help_dialog_user_prompt(message, history_text)
+
+            response = await self.client.generate(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=0.65,  # Естественный диалог
+            )
+
+            logger.info("HELP_DIALOG_MESSAGE_COMPLETED")
+
+            return {
+                "success": True,
+                "answer": response,
+                "raw_response": response,
+                "error": None,
+            }
+
+        except YandexGPTError as e:
+            logger.error(f"Help dialog failed: {e}")
+            return {
+                "success": False,
+                "answer": None,
+                "raw_response": None,
+                "error": str(e),
+            }
+
+        except Exception as e:
+            logger.error(f"Unexpected help dialog error: {e}")
+            return {
+                "success": False,
+                "answer": None,
+                "raw_response": None,
+                "error": "Произошла ошибка при ответе.",
+            }
+
+    # ==================== ДИНАМИКА ====================
 
     async def analyze_dynamics(
         self,
         stats: DynamicsStatistics,
     ) -> Optional[DynamicsReport]:
-        """
-        Анализ динамики на основе статистики.
-        Возвращает DynamicsReport или None при ошибке.
-        """
+        """Анализ динамики на основе статистики."""
         if stats.entries_count < 3:
             logger.info("Not enough entries for dynamics analysis (need at least 3)")
             return None
 
         try:
-            # Формируем данные для отправки
             data_for_ai = self._prepare_dynamics_data(stats)
-            
-            # Получаем системный промпт
             system_prompt = self._build_dynamics_system_prompt()
             
-            # Отправляем запрос к YandexGPT
             response = await self.client.generate(
                 system_prompt=system_prompt,
                 user_prompt=json.dumps(data_for_ai, ensure_ascii=False, indent=2),
                 temperature=0.3,
             )
 
-            # Парсим JSON
             report_data = self._parse_dynamics_response(response)
             if not report_data:
                 logger.warning("Failed to parse dynamics response, using fallback")
                 return self._create_fallback_report(stats)
 
-            # Валидируем через Pydantic
             report = DynamicsReport(**report_data)
             
-            # Добавляем медицинское предостережение по умолчанию, если его нет
             if not report.medical_note:
                 report.medical_note = (
                     "ℹ️ Это наблюдение по дневниковым данным, "
@@ -607,7 +624,6 @@ class AIService:
             "start_date": stats.start_date.strftime("%d.%m.%Y"),
             "end_date": stats.end_date.strftime("%d.%m.%Y"),
             
-            # Основные показатели
             "average_intensity": stats.average_intensity,
             "min_intensity": stats.min_intensity,
             "max_intensity": stats.max_intensity,
@@ -624,7 +640,6 @@ class AIService:
             "min_sleep": stats.min_sleep,
             "max_sleep": stats.max_sleep,
             
-            # Топ симптомов
             "top_symptoms": [
                 {
                     "symptom": s.symptom,
@@ -637,7 +652,6 @@ class AIService:
             ],
         }
 
-        # Сравнение первой и последней части
         if stats.first_period and stats.last_period:
             data["first_period"] = {
                 "start": stats.first_period.start_date.strftime("%d.%m.%Y"),
@@ -658,7 +672,6 @@ class AIService:
                 "average_sleep": stats.last_period.average_sleep,
             }
 
-        # Сравнения (корреляции)
         if stats.stress_symptom_comparison:
             data["stress_comparison"] = stats.stress_symptom_comparison
         if stats.sleep_symptom_comparison:
@@ -666,13 +679,11 @@ class AIService:
         if stats.mood_symptom_comparison:
             data["mood_comparison"] = stats.mood_symptom_comparison
 
-        # Контексты
         if stats.relevant_contexts:
             data["recent_contexts"] = stats.relevant_contexts[:3]
         if stats.frequent_contexts:
             data["frequent_contexts"] = stats.frequent_contexts[:3]
 
-        # Предыдущие анализы
         if stats.previous_analyses_summary:
             data["previous_analyses"] = stats.previous_analyses_summary
 
