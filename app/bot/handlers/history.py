@@ -50,7 +50,7 @@ def get_analysis_buttons(analyses: list, user_tz) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-# ==================== ИСПРАВЛЕНО: принимает event (Message или CallbackQuery) ====================
+# ==================== ПОКАЗ ИСТОРИИ ====================
 
 @router.message(Command("history"))
 @router.message(F.text == "📋 История анализов")
@@ -175,6 +175,8 @@ async def _show_history_internal(message: types.Message, db_session: AsyncSessio
         )
 
 
+# ==================== ПРОСМОТР ДЕТАЛЕЙ СЕССИИ ====================
+
 @router.callback_query(F.data.startswith("analysis_view_"))
 async def show_analysis_detail(callback: CallbackQuery, db_session: AsyncSession = None):
     """Показывает полную сессию и уточнения."""
@@ -212,9 +214,9 @@ async def _show_analysis_detail_internal(callback: CallbackQuery, db_session: As
             user_tz = ZoneInfo("UTC")
         
         analysis_repo = AnalysisRepository(db_session)
-        # ==================== ИСПРАВЛЕНО ====================
-        analysis = await analysis_repo.get_by_id(analysis_id, user.id)  # ← ДОБАВЛЕН user.id
-        # =====================================================
+        # ==================== ИСПРАВЛЕНО: добавлен user.id ====================
+        analysis = await analysis_repo.get_by_id(analysis_id, user.id)
+        # ====================================================================
         
         if not analysis or analysis.user_id != user.id:
             await callback.message.edit_text(
@@ -293,6 +295,8 @@ async def _show_analysis_detail_internal(callback: CallbackQuery, db_session: As
         )
 
 
+# ==================== ВОЗВРАТ К СПИСКУ ====================
+
 @router.callback_query(F.data == "back_to_history")
 async def back_to_history_list(callback: CallbackQuery, db_session: AsyncSession = None):
     """Возврат к списку сессий."""
@@ -360,6 +364,8 @@ async def _back_to_history_internal(callback: CallbackQuery, db_session: AsyncSe
         )
 
 
+# ==================== ОБНОВЛЕНИЕ СПИСКА ====================
+
 @router.callback_query(F.data == "history_refresh")
 async def refresh_history_list(callback: CallbackQuery, db_session: AsyncSession = None):
     """Обновление списка сессий."""
@@ -426,6 +432,8 @@ async def _refresh_history_internal(callback: CallbackQuery, db_session: AsyncSe
             reply_markup=None,
         )
 
+
+# ==================== ОЧИСТКА ИСТОРИИ ====================
 
 @router.callback_query(F.data == "clear_history")
 async def confirm_clear_history(callback: CallbackQuery):
@@ -527,7 +535,7 @@ async def _clear_history_internal(callback: CallbackQuery, db_session: AsyncSess
         )
 
 
-# ==================== ИСПРАВЛЕНО: возврат в профиль ====================
+# ==================== ВОЗВРАТ В ПРОФИЛЬ (ИСПРАВЛЕНО) ====================
 
 @router.callback_query(F.data == "back_to_profile_from_history")
 async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -535,23 +543,25 @@ async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContex
     await callback.answer()
     await state.clear()
     
-    from app.bot.handlers.profile import show_profile
-    
-    # ==================== ИСПРАВЛЕНО ====================
-    # Создаём фейковое сообщение с правильным from_user.id
-    class FakeMessage:
-        def __init__(self, user_id):
-            self.from_user = type('obj', (object,), {'id': user_id})
-    
-    fake_message = FakeMessage(callback.from_user.id)
-    # ====================================================
+    from app.bot.handlers.profile import show_profile_from_callback
     
     try:
         await callback.message.delete()
     except Exception as e:
         logger.warning(f"Could not delete message: {e}")
     
-    await show_profile(fake_message, state, db_session)
+    # ==================== ИСПРАВЛЕНО ====================
+    # Отправляем новое сообщение с правильным chat_id
+    new_message = await callback.bot.send_message(
+        chat_id=callback.from_user.id,
+        text="🔄 Загружаю профиль..."
+    )
+    
+    # Заменяем сообщение в callback на новое
+    callback.message = new_message
+    # ====================================================
+    
+    await show_profile_from_callback(callback, state, db_session)
 
 
 @router.callback_query(F.data == "back_to_menu")
