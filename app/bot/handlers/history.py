@@ -545,20 +545,8 @@ async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContex
     
     from app.bot.handlers.profile import show_profile_from_callback
     
-    try:
-        await callback.message.delete()
-    except Exception as e:
-        logger.warning(f"Could not delete message: {e}")
-    
     # ==================== ИСПРАВЛЕНО ====================
-    # Отправляем новое сообщение с правильным chat_id
-    new_message = await callback.bot.send_message(
-        chat_id=callback.from_user.id,
-        text="🔄 Загружаю профиль..."
-    )
-    
-    # Заменяем сообщение в callback на новое
-    callback.message = new_message
+    # Просто вызываем show_profile_from_callback, который редактирует исходное сообщение
     # ====================================================
     
     await show_profile_from_callback(callback, state, db_session)

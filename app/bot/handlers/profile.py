@@ -104,12 +104,13 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     logger.info(f"User opened profile: {user_id}")
 
 
-# ==================== НОВАЯ ФУНКЦИЯ ДЛЯ ВЫЗОВА ИЗ CALLBACK ====================
+# ==================== НОВАЯ ФУНКЦИЯ ДЛЯ ПОКАЗА ПРОФИЛЯ ИЗ CALLBACK ====================
 
 async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """
     Показывает профиль пользователя из callback.
     Использует callback.from_user.id для получения пользователя.
+    Редактирует исходное сообщение.
     """
     await state.clear()
     
@@ -181,13 +182,13 @@ async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext,
         "Выбери раздел для управления:"
     )
     
-    # ==================== ОТВЕЧАЕМ ЧЕРЕЗ callback ====================
+    # ==================== РЕДАКТИРУЕМ ИСХОДНОЕ СООБЩЕНИЕ ====================
     await callback.message.edit_text(
         text,
         reply_markup=get_profile_menu_keyboard(),
         parse_mode="HTML",
     )
-    # ================================================================
+    # =====================================================================
     
     logger.info(f"User opened profile from callback: {user_id}")
 
