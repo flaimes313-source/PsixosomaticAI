@@ -212,7 +212,9 @@ async def _show_analysis_detail_internal(callback: CallbackQuery, db_session: As
             user_tz = ZoneInfo("UTC")
         
         analysis_repo = AnalysisRepository(db_session)
-        analysis = await analysis_repo.get_by_id(analysis_id)
+        # ==================== ИСПРАВЛЕНО ====================
+        analysis = await analysis_repo.get_by_id(analysis_id, user.id)  # ← ДОБАВЛЕН user.id
+        # =====================================================
         
         if not analysis or analysis.user_id != user.id:
             await callback.message.edit_text(
