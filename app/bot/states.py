@@ -167,3 +167,9 @@ class EveningSurveyStates(StatesGroup):
     waiting_for_question_5 = State()  # Как с едой, сном, движением?
     waiting_for_clarification = State()  # Уточняющие вопросы
     waiting_for_reminder = State()  # Интерактив (напоминание)
+class DescribeStateStates(StatesGroup):
+    """
+    Состояния для сценария «Описать состояние».
+    """
+    waiting_for_description = State()  # Ожидание первого описания
+    waiting_for_continue = State()     # Продолжение диалога
