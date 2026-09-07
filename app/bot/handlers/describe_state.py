@@ -1,10 +1,10 @@
 """
 Обработчик для кнопки «📝 Описать состояние».
-Свободное описание состояния с уточняющими вопросами.
+Свободное описание состояния с живым AI-диалогом (без JSON, без шаблонов).
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -15,7 +15,6 @@ from app.services.ai_service import ai_service
 from app.services.access_service import AccessService
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
-from app.db.repositories.analysis import AnalysisRepository
 from app.utils.logging import logger
 
 router = Router()
@@ -24,13 +23,13 @@ router = Router()
 @router.message(F.text == "📝 Описать состояние")
 async def start_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """
-    Запускает сценарий «Описать состояние».
+    Запускает сценарий «Описать состояние» (живой диалог).
     """
     await state.clear()
     
     telegram_id = message.from_user.id
     
-    # Проверяем лимит (используем тот же, что для "Что я чувствую в теле")
+    # Проверяем лимит
     access_service = AccessService(db_session)
     can_use, limit_message = await access_service.can_use_body_analysis(telegram_id)
     
@@ -51,7 +50,8 @@ async def start_describe_state(message: types.Message, state: FSMContext, db_ses
         "Например:\n"
         "• «Чувствую тяжесть в груди и тревогу»\n"
         "• «Утром болела голова, сейчас легче»\n"
-        "• «Не могу сосредоточиться, всё раздражает»",
+        "• «Не могу сосредоточиться, всё раздражает»\n\n"
+        "Я отвечу естественно, без шаблонов — как в живом разговоре.",
         reply_markup=get_cancel_keyboard(),
         parse_mode="HTML",
     )
@@ -61,7 +61,7 @@ async def start_describe_state(message: types.Message, state: FSMContext, db_ses
 @router.message(DescribeStateStates.waiting_for_description, F.text)
 async def process_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """
-    Обрабатывает описание состояния и запускает AI-анализ.
+    Обрабатывает описание состояния и запускает живой AI-диалог.
     """
     telegram_id = message.from_user.id
     description = message.text.strip()
@@ -84,40 +84,37 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
         return
     
     loading_message = await message.answer(
-        "🧠 Анализирую твоё состояние...\n\nПожалуйста, подожди.",
+        "🧠 Думаю над твоим состоянием...\n\nПожалуйста, подожди.",
         reply_markup=get_cancel_keyboard(),
     )
     
     try:
-        # Используем существующий метод анализа
-        result = await ai_service.analyze_and_save(
+        # ==================== ИСПОЛЬЗУЕМ НОВЫЙ МЕТОД describe_state ====================
+        result = await ai_service.describe_state(
+            description=description,
             telegram_id=telegram_id,
-            symptom=description,
-            duration="Только что",
-            intensity=5,
-            context="Описание состояния через кнопку",
             db_session=db_session,
         )
         
         await loading_message.delete()
         
         if result["success"]:
-            analysis = result["analysis"]
-            analysis_id = result.get("analysis_id")
+            answer = result["answer"]
+            saved = result.get("saved", False)
             
             # Увеличиваем счётчик
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
-            # Форматируем ответ
-            from app.utils.formatter import format_analysis_for_telegram
-            result_text = format_analysis_for_telegram(analysis)
+            # ==================== ОТВЕТ БЕЗ ШАБЛОНОВ ====================
+            result_text = f"🧠 {answer}"
             
-            # Добавляем информацию о сохранении
-            result_text += "\n\n✅ Сохранено в дневник и историю"
+            if saved:
+                result_text += "\n\n✅ Сохранено в дневник и историю"
+            else:
+                result_text += "\n\n⚠️ Не удалось сохранить"
             
             # Кнопки для продолжения
-            from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(
@@ -143,13 +140,13 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
                 parse_mode="HTML",
             )
             
-            logger.info(f"Describe state completed: user={telegram_id}, analysis_id={analysis_id}")
+            logger.info(f"Describe state completed: user={telegram_id}")
             
         else:
             await message.answer(
                 f"😔 Извините, не удалось выполнить анализ.\n\n"
-                f"Ошибка: {result.get('error', 'Неизвестная ошибка')}\n\n"
-                "Попробуйте позже.",
+                f"Ошибка: {result.get('error', 'Попробуйте позже.')}\n\n"
+                "Попробуйте ещё раз или переформулируйте описание.",
                 reply_markup=get_main_menu_keyboard(),
             )
             
@@ -179,7 +176,6 @@ async def describe_new(callback: CallbackQuery, state: FSMContext):
     
     await callback.message.delete()
     
-    # Создаём фейковое сообщение
     class FakeMessage:
         def __init__(self, user_id):
             self.from_user = type('obj', (object,), {'id': user_id})
