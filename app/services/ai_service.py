@@ -129,9 +129,9 @@ class AIService:
 
     # ==================== РЕЖИМ 4: «ОПИСАТЬ СОСТОЯНИЕ» (ЖИВОЙ ДИАЛОГ, БЕЗ JSON) ====================
 
-    def _build_describe_state_system_prompt(self) -> str:
-        """Формирует системный промпт для «Описать состояние» (живой диалог, без JSON)."""
-        return """
+    def _build_describe_state_system_prompt(self, context: str = "") -> str:
+        """Формирует системный промпт для «Описать состояние» с учётом контекста."""
+        base_prompt = """
 Ты — AI-помощник «Сома. Забота о себе.»
 
 Ты помогаешь человеку исследовать связь между телесными ощущениями, эмоциями, мыслями, сном, едой, нагрузкой и событиями.
@@ -165,6 +165,18 @@ class AIService:
 
 Никаких шаблонов. Каждый ответ — живой и индивидуальный.
 """
+        
+        if context:
+            base_prompt += f"""
+
+ИСТОРИЯ ПРЕДЫДУЩИХ РАЗГОВОРОВ С ПОЛЬЗОВАТЕЛЕМ:
+
+{context}
+
+Учитывай эту историю в своём ответе. Если пользователь спрашивает о том, что уже обсуждалось — напомни ему об этом и продолжай тему.
+"""
+        
+        return base_prompt
 
     # ==================== СИСТЕМНЫЙ ПРОМПТ ДЛЯ ДИНАМИКИ ====================
 
@@ -385,6 +397,67 @@ class AIService:
         except Exception as e:
             logger.error(f"Error parsing dynamics response: {e}")
             return None
+
+    # ==================== ПОЛУЧЕНИЕ КОНТЕКСТА ПОЛЬЗОВАТЕЛЯ ====================
+
+    async def get_user_context(
+        self,
+        telegram_id: int,
+        db_session: AsyncSession,
+        limit: int = 5,
+    ) -> str:
+        """
+        Получает последние N диалогов пользователя для контекста.
+        """
+        try:
+            # Получаем пользователя
+            user_result = await db_session.execute(
+                select(User).where(User.telegram_id == telegram_id)
+            )
+            user = user_result.scalar_one_or_none()
+            
+            if not user:
+                return ""
+            
+            # Получаем последние анализы
+            analysis_repo = AnalysisRepository(db_session)
+            analyses = await analysis_repo.get_user_analyses(user.id, limit=limit)
+            
+            if not analyses:
+                return ""
+            
+            # Формируем контекст
+            context_parts = []
+            context_parts.append("📋 Краткая история твоих обращений:\n")
+            
+            for i, analysis in enumerate(analyses, 1):
+                date_str = analysis.created_at.strftime("%d.%m.%Y")
+                symptom_preview = analysis.symptom[:80] + "..." if len(analysis.symptom) > 80 else analysis.symptom
+                context_parts.append(f"📅 {date_str} — {symptom_preview}")
+            
+            context_parts.append("")
+            context_parts.append("---")
+            context_parts.append("")
+            
+            # Получаем уточнения к последнему анализу
+            if analyses:
+                last_analysis = analyses[0]
+                from app.db.repositories.clarification import ClarificationRepository
+                clar_repo = ClarificationRepository(db_session)
+                clarifications = await clar_repo.get_by_analysis_id(last_analysis.id)
+                
+                if clarifications:
+                    context_parts.append("📝 Последние уточнения:")
+                    for clar in clarifications[-3:]:  # последние 3 уточнения
+                        context_parts.append(f"❓ {clar.question}")
+                        context_parts.append(f"💬 {clar.answer[:100]}...")
+                        context_parts.append("")
+            
+            return "\n".join(context_parts) if context_parts else ""
+            
+        except Exception as e:
+            logger.error(f"Error getting user context: {e}")
+            return ""
 
     # ==================== РЕЖИМ 1: ПЕРВИЧНЫЙ АНАЛИЗ ТЕЛА ====================
 
@@ -624,13 +697,16 @@ class AIService:
     ) -> Dict[str, Any]:
         """
         Живой диалог для «Описать состояние».
-        Не требует JSON, возвращает естественный текст.
-        Сохраняет результат в БД как анализ.
+        Учитывает историю предыдущих диалогов пользователя.
         """
         logger.info(f"DESCRIBE_STATE_STARTED: user={telegram_id}, description={description[:30]}...")
 
         try:
-            system_prompt = self._build_describe_state_system_prompt()
+            # ==================== ПОЛУЧАЕМ КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ ====================
+            context = await self.get_user_context(telegram_id, db_session, limit=3)
+            # =======================================================================
+
+            system_prompt = self._build_describe_state_system_prompt(context)
             user_prompt = self._build_describe_state_user_prompt(description)
 
             response = await self.client.generate(
