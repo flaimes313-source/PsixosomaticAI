@@ -113,12 +113,57 @@ class QuickStartStates(StatesGroup):
     waiting_for_description = State()  # Ожидание описания состояния
 
 
-# ==================== НОВОЕ: СВОБОДНЫЙ ДИАЛОГ «ПОМОГИТЕ РАЗОБРАТЬСЯ» ====================
-# Сохраняем QuickStartStates для обратной совместимости,
-# но добавляем новый класс для свободного диалога
+# ==================== СВОБОДНЫЙ ДИАЛОГ «ПОМОГИТЕ РАЗОБРАТЬСЯ» ====================
 
 class HelpDialogStates(StatesGroup):
     """
     Состояния для свободного AI-диалога «Помогите разобраться».
     """
     waiting_for_message = State()      # Ожидание сообщения от пользователя (продолжение диалога)
+
+
+# ==================== СЦЕНАРИЙ «ОПИСАТЬ СОСТОЯНИЕ» ====================
+
+class DescribeStateStates(StatesGroup):
+    """
+    Состояния для сценария «Описать состояние».
+    """
+    waiting_for_description = State()
+
+
+# ==================== ОПРОСНИКИ (УТРО/ДЕНЬ/ВЕЧЕР) ====================
+
+class MorningSurveyStates(StatesGroup):
+    """
+    Состояния для утреннего опроса.
+    """
+    waiting_for_question_1 = State()  # Как проснулся?
+    waiting_for_question_2 = State()  # Что чувствуешь в теле?
+    waiting_for_question_3 = State()  # Какое настроение?
+    waiting_for_question_4 = State()  # Что в мыслях?
+    waiting_for_question_5 = State()  # Как спал?
+    waiting_for_clarification = State()  # Уточняющие вопросы
+    waiting_for_reminder = State()  # Интерактив (напоминание)
+
+
+class DaySurveyStates(StatesGroup):
+    """
+    Состояния для дневного опроса.
+    """
+    waiting_for_question_1 = State()  # Как ты сейчас?
+    waiting_for_question_2 = State()  # Что изменилось с утра?
+    waiting_for_question_3 = State()  # Что повлияло?
+    waiting_for_finish = State()      # Завершение
+
+
+class EveningSurveyStates(StatesGroup):
+    """
+    Состояния для вечернего опроса.
+    """
+    waiting_for_question_1 = State()  # Как себя чувствуешь?
+    waiting_for_question_2 = State()  # Что повлияло на состояние?
+    waiting_for_question_3 = State()  # Что дало энергию?
+    waiting_for_question_4 = State()  # Что забрало силы?
+    waiting_for_question_5 = State()  # Как с едой, сном, движением?
+    waiting_for_clarification = State()  # Уточняющие вопросы
+    waiting_for_reminder = State()  # Интерактив (напоминание)

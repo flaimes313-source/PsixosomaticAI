@@ -6,31 +6,32 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Создает главное меню с кнопками."""
+    """Создает главное меню с кнопками (новый порядок)."""
     builder = ReplyKeyboardBuilder()
     
     builder.add(
-        # === ПСИХОБЛОК ===
-        KeyboardButton(text="🩺 Что я чувствую в теле"),  # ← ИЗМЕНЕНО: эмодзи и без "?"
-        KeyboardButton(text="🧠 Помогите разобраться"),
-        
         # === ИНФО ===
         KeyboardButton(text="📖 Как это работает?"),
         
-        # === КОММЕРЦИЯ ===
-        KeyboardButton(text="⭐ Сома. PRO"),  # ← ИЗМЕНЕНО: название как в ТЗ
+        # === ГЛАВНЫЙ РАЗДЕЛ ===
+        KeyboardButton(text="📝 Описать состояние"),
+        
+        # === АНАЛИТИКА ===
+        KeyboardButton(text="📊 Моя динамика"),
         
         # === ИНСТРУМЕНТЫ ===
         KeyboardButton(text="📔 Дневник"),
-        KeyboardButton(text="📊 Моя динамика"),
         
-        # === ПРОФИЛЬ И ПОДДЕРЖКА ===
+        # === ПРОФИЛЬ И ПРОДУКТЫ ===
         KeyboardButton(text="👤 Профиль"),
-        KeyboardButton(text="❓ Поддержка"),
+        KeyboardButton(text="💎 PRO"),
+        
+        # === ПОДДЕРЖКА ===
+        KeyboardButton(text="🆘 Поддержка"),
     )
     
-    # 8 кнопок → 4 ряда (2,2,2,2)
-    builder.adjust(2, 2, 2, 2)
+    # 7 кнопок → 4 ряда (1,2,2,2)
+    builder.adjust(1, 1, 2, 1, 2)
     
     return builder.as_markup(
         resize_keyboard=True,

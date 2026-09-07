@@ -17,14 +17,18 @@ from app.bot.handlers import (
     dynamics_handler, reminders_handler, pro_handler,
     admin_handler, support_handler, profile_handler,
     how_it_works_handler, symptom_choice_handler, quick_start_handler,
-    help_me,  # ← НОВЫЙ ИМПОРТ
+    help_me, describe_state_handler,
 )
+from app.bot.handlers.surveys import morning as morning_survey_handler
+from app.bot.handlers.surveys import day as day_survey_handler
+from app.bot.handlers.surveys import evening as evening_survey_handler
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
 from app.db.database import check_db_connection, engine, async_session_maker
 from app.services.reminder_service import ReminderService
 from app.services.subscription_service import SubscriptionService
 from app.services.payment_reconciliation_service import PaymentReconciliationService
+from app.services.survey_scheduler import SurveyScheduler  # ← НОВЫЙ ИМПОРТ
 from app.webhooks.yookassa import router as yookassa_webhook_router
 from app.db.repositories.subscription import SubscriptionRepository
 
@@ -97,7 +101,11 @@ async def main() -> None:
     dp.include_router(how_it_works_handler.router)  # "Как это работает?"
     dp.include_router(symptom_choice_handler.router)  # "Что я чувствую в теле?"
     dp.include_router(quick_start_handler.router)  # "Помогите разобраться" (старая версия)
-    dp.include_router(help_me.router)          # ← НОВЫЙ: "Помогите разобраться" (свободный AI-диалог)
+    dp.include_router(help_me.router)          # "Помогите разобраться" (свободный AI-диалог)
+    dp.include_router(describe_state_handler.router)  # "Описать состояние"
+    dp.include_router(morning_survey_handler.router)  # Утренний опрос
+    dp.include_router(day_survey_handler.router)      # Дневной опрос
+    dp.include_router(evening_survey_handler.router)  # Вечерний опрос
     dp.include_router(cancel.router)           # Команда /cancel
     dp.include_router(history.router)          # История анализов
     dp.include_router(errors_router)           # Глобальный обработчик ошибок
@@ -120,6 +128,13 @@ async def main() -> None:
     reconciliation_service = PaymentReconciliationService(async_session_maker)
     await reconciliation_service.start()
     logger.info("PaymentReconciliationService started")
+
+    # ==================== НОВОЕ: ЗАПУСК ШЕДУЛЕРА ОПРОСОВ ====================
+    logger.info("Starting SurveyScheduler...")
+    survey_scheduler = SurveyScheduler(async_session_maker, bot)
+    await survey_scheduler.start()
+    logger.info("SurveyScheduler started")
+    # ====================================================================
 
     # Подключение webhook
     fastapi_app.include_router(yookassa_webhook_router)
@@ -146,6 +161,7 @@ async def main() -> None:
         fastapi_task.cancel()
         await reminder_service.stop()
         await reconciliation_service.stop()
+        await survey_scheduler.stop()  # ← НОВОЕ: ОСТАНОВКА ШЕДУЛЕРА
         await bot.session.close()
         await engine.dispose()
         logger.info("Application stopped")
