@@ -1,6 +1,6 @@
 """
 Обработчик для кнопки «📝 Описать состояние».
-Свободное описание состояния с живым AI-диалогом (без JSON, без шаблонов).
+Полноценный диалог с живым AI-ответом (без JSON, без шаблонов).
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -15,7 +15,7 @@ from app.services.ai_service import ai_service
 from app.services.access_service import AccessService
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
-from app.db.repositories.analysis import AnalysisRepository
+from app.db.repositories.clarification import ClarificationRepository
 from app.utils.logging import logger
 
 router = Router()
@@ -24,7 +24,7 @@ router = Router()
 @router.message(F.text == "📝 Описать состояние")
 async def start_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """
-    Запускает сценарий «Описать состояние» (живой диалог).
+    Запускает сценарий «Описать состояние» (полноценный диалог).
     """
     await state.clear()
     
@@ -44,7 +44,8 @@ async def start_describe_state(message: types.Message, state: FSMContext, db_ses
     
     await state.set_state(DescribeStateStates.waiting_for_description)
     
-    await message.answer(
+    # Отправляем первое сообщение, которое будем редактировать
+    dialog_message = await message.answer(
         "📝 <b>Расскажи, как ты себя чувствуешь</b>\n\n"
         "Можешь описать тело, эмоции, мысли, сон, еду или нагрузку — что сейчас важно.\n"
         "Если не знаешь, как точно описать — просто напиши своими словами, я помогу уточнить.\n\n"
@@ -56,13 +57,16 @@ async def start_describe_state(message: types.Message, state: FSMContext, db_ses
         reply_markup=get_cancel_keyboard(),
         parse_mode="HTML",
     )
+    
+    # Сохраняем ID сообщения для редактирования
+    await state.update_data(dialog_message_id=dialog_message.message_id)
     logger.info(f"User started describe state: {telegram_id}")
 
 
 @router.message(DescribeStateStates.waiting_for_description, F.text)
 async def process_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """
-    Обрабатывает описание состояния и запускает живой AI-диалог.
+    Обрабатывает первое описание состояния и запускает AI-диалог.
     """
     telegram_id = message.from_user.id
     description = message.text.strip()
@@ -84,13 +88,18 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
         await state.clear()
         return
     
+    # Получаем ID сообщения для редактирования
+    data = await state.get_data()
+    dialog_message_id = data.get("dialog_message_id")
+    
+    # Отправляем статус "печатает"
     loading_message = await message.answer(
-        "🧠 Думаю над твоим состоянием...\n\nПожалуйста, подожди.",
-        reply_markup=get_cancel_keyboard(),
+        "🧠 <b>Думаю над твоим состоянием...</b>\n\nПожалуйста, подожди.",
+        parse_mode="HTML",
     )
     
     try:
-        # Используем новый метод describe_state
+        # Отправляем запрос к AI
         result = await ai_service.describe_state(
             description=description,
             telegram_id=telegram_id,
@@ -108,56 +117,50 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
-            # ==================== ОТВЕТ БЕЗ ШАБЛОНОВ ====================
-            result_text = f"🧠 {answer}"
+            # ==================== ФОРМИРУЕМ ПОЛНЫЙ ДИАЛОГ ====================
+            dialog_text = f"📝 <b>Ты написал:</b>\n{description}\n\n"
+            dialog_text += f"🧠 <b>Я думаю:</b>\n{answer}\n\n"
             
             if saved:
-                result_text += "\n\n✅ Сохранено в дневник и историю"
+                dialog_text += "✅ Сохранено в дневник и историю\n\n"
             
-            # ==================== НОВОЕ: ПЕРЕХОДИМ В РЕЖИМ ПРОДОЛЖЕНИЯ ДИАЛОГА ====================
+            dialog_text += "━━━━━━━━━━━━━━━━━━━\n\n"
+            dialog_text += "💬 <b>Продолжим диалог?</b>\nНапиши следующий вопрос или уточнение."
+            
+            # Сохраняем данные в FSM
             await state.update_data(
                 analysis_id=analysis_id,
                 is_dialog_active=True,
-                messages=[{"role": "user", "content": description}, {"role": "assistant", "content": answer}]
+                dialog_history=[
+                    {"role": "user", "content": description},
+                    {"role": "assistant", "content": answer}
+                ],
+                dialog_text=dialog_text,
+                dialog_message_id=dialog_message_id,
             )
             await state.set_state(DescribeStateStates.waiting_for_continue)
-            # =================================================================================
             
-            # Кнопки для продолжения
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(
-                        text="💬 Продолжить диалог",
-                        callback_data="describe_continue"
-                    )],
-                    [InlineKeyboardButton(
-                        text="📝 Новое описание",
-                        callback_data="describe_new"
-                    )],
-                    [InlineKeyboardButton(
-                        text="📋 История",
-                        callback_data="describe_history"
-                    )],
-                    [InlineKeyboardButton(
-                        text="🔙 В меню",
-                        callback_data="describe_back_to_menu"
-                    )]
-                ]
-            )
-            
-            await message.answer(
-                result_text,
-                reply_markup=keyboard,
+            # ==================== РЕДАКТИРУЕМ СООБЩЕНИЕ ====================
+            await message.bot.edit_text(
+                chat_id=message.chat.id,
+                message_id=dialog_message_id,
+                text=dialog_text,
+                reply_markup=get_continue_dialog_keyboard(),
                 parse_mode="HTML",
             )
+            
+            # Удаляем сообщение пользователя (оно уже есть в диалоге)
+            try:
+                await message.delete()
+            except Exception:
+                pass
             
             logger.info(f"Describe state completed: user={telegram_id}")
             
         else:
             await message.answer(
                 f"😔 Извините, не удалось выполнить анализ.\n\n"
-                f"Ошибка: {result.get('error', 'Попробуйте позже.')}\n\n"
-                "Попробуйте ещё раз или переформулируйте описание.",
+                f"Ошибка: {result.get('error', 'Попробуйте позже.')}",
                 reply_markup=get_main_menu_keyboard(),
             )
             await state.clear()
@@ -177,7 +180,7 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
 @router.message(DescribeStateStates.waiting_for_continue, F.text)
 async def continue_describe_dialog(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """
-    Продолжает диалог «Описать состояние» — пользователь задаёт новый вопрос или уточнение.
+    Продолжает диалог — каждое новое сообщение добавляется в общий диалог.
     """
     telegram_id = message.from_user.id
     user_text = message.text.strip()
@@ -185,7 +188,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
     if len(user_text) < 3:
         await message.answer(
             "Пожалуйста, напиши более развёрнутое сообщение (минимум 3 символа).",
-            reply_markup=get_continue_dialog_keyboard(),
         )
         return
     
@@ -202,18 +204,29 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
     # Получаем данные из FSM
     data = await state.get_data()
     analysis_id = data.get("analysis_id")
-    messages = data.get("messages", [])
+    dialog_history = data.get("dialog_history", [])
+    dialog_text = data.get("dialog_text", "")
+    dialog_message_id = data.get("dialog_message_id")
     
-    # Добавляем сообщение пользователя в историю
-    messages.append({"role": "user", "content": user_text})
+    # Добавляем сообщение пользователя
+    dialog_history.append({"role": "user", "content": user_text})
     
+    # Отправляем статус "печатает"
     loading_message = await message.answer(
-        "🧠 Думаю...\n\nПожалуйста, подожди.",
-        reply_markup=get_continue_dialog_keyboard(),
+        "🧠 <b>Думаю...</b>\n\nПожалуйста, подожди.",
+        parse_mode="HTML",
     )
     
     try:
-        # Формируем промпт с учётом истории
+        # Формируем полный контекст для AI
+        context = ""
+        for msg in dialog_history:
+            role = "Пользователь" if msg.get("role") == "user" else "Ты (AI)"
+            context += f"{role}: {msg.get('content')}\n"
+        
+        # Отправляем запрос к YandexGPT
+        from app.services.yandex_gpt import YandexGPTClient
+        
         system_prompt = """
 Ты — AI-помощник «Сома. Забота о себе.»
 
@@ -230,17 +243,10 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
 Будь дружелюбным, тёплым, поддерживающим.
 """
         
-        # Формируем историю для AI
-        history_text = ""
-        for msg in messages:
-            role = "Пользователь" if msg.get("role") == "user" else "Ты (AI)"
-            content = msg.get("content", "")
-            history_text += f"{role}: {content}\n"
-        
         user_prompt = f"""
 ИСТОРИЯ ДИАЛОГА
 
-{history_text}
+{context}
 
 ТЕКУЩЕЕ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ
 
@@ -249,10 +255,7 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
 Ответь естественно, как в живом разговоре. Учитывай предыдущий диалог.
 """
         
-        # Отправляем запрос в YandexGPT
-        from app.services.yandex_gpt import YandexGPTClient
         client = YandexGPTClient()
-        
         response = await client.generate(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -262,15 +265,12 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         
         await loading_message.delete()
         
-        # Сохраняем ответ в историю
-        messages.append({"role": "assistant", "content": response})
+        # Добавляем ответ AI в историю
+        dialog_history.append({"role": "assistant", "content": response})
         
         # Сохраняем в БД (как уточнение к анализу)
         try:
             if analysis_id:
-                from app.db.repositories.clarification import ClarificationRepository
-                from app.db.models.user import User
-                
                 user_result = await db_session.execute(
                     select(User).where(User.telegram_id == telegram_id)
                 )
@@ -284,21 +284,52 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
                         question=user_text,
                         answer=response,
                     )
-                    logger.info(f"Clarification saved for analysis {analysis_id}")
         except Exception as e:
             logger.error(f"Failed to save clarification: {e}")
         
+        # ==================== ОБНОВЛЯЕМ ПОЛНЫЙ ДИАЛОГ ====================
+        # Берём последние 10 сообщений для компактности
+        last_messages = dialog_history[-10:] if len(dialog_history) > 10 else dialog_history
+        
+        new_dialog_text = "📝 <b>Твой диалог с AI</b>\n\n"
+        for msg in last_messages:
+            if msg.get("role") == "user":
+                new_dialog_text += f"👤 <b>Ты:</b> {msg.get('content')}\n\n"
+            else:
+                new_dialog_text += f"🧠 <b>Я:</b> {msg.get('content')}\n\n"
+        
+        new_dialog_text += "━━━━━━━━━━━━━━━━━━━\n\n"
+        new_dialog_text += "💬 <b>Продолжим?</b>\nНапиши следующий вопрос или уточнение."
+        
         # Обновляем FSM
-        await state.update_data(messages=messages)
-        
-        # Отправляем ответ
-        result_text = f"🧠 {response}"
-        
-        await message.answer(
-            result_text,
-            reply_markup=get_continue_dialog_keyboard(),
-            parse_mode="HTML",
+        await state.update_data(
+            dialog_history=dialog_history,
+            dialog_text=new_dialog_text,
         )
+        
+        # ==================== РЕДАКТИРУЕМ СООБЩЕНИЕ ====================
+        try:
+            await message.bot.edit_text(
+                chat_id=message.chat.id,
+                message_id=dialog_message_id,
+                text=new_dialog_text,
+                reply_markup=get_continue_dialog_keyboard(),
+                parse_mode="HTML",
+            )
+        except Exception as e:
+            logger.error(f"Error editing message: {e}")
+            # Если не удалось отредактировать — отправляем новое
+            await message.answer(
+                new_dialog_text,
+                reply_markup=get_continue_dialog_keyboard(),
+                parse_mode="HTML",
+            )
+        
+        # Удаляем сообщение пользователя (оно уже есть в диалоге)
+        try:
+            await message.delete()
+        except Exception:
+            pass
         
     except Exception as e:
         await loading_message.delete()
@@ -314,23 +345,6 @@ async def continue_dialog_invalid(message: types.Message, state: FSMContext):
     """Невалидный ввод при продолжении диалога."""
     await message.answer(
         "Пожалуйста, напиши текстовое сообщение.",
-        reply_markup=get_continue_dialog_keyboard(),
-    )
-
-
-@router.callback_query(F.data == "describe_continue")
-async def describe_continue(callback: CallbackQuery, state: FSMContext):
-    """Переход в режим продолжения диалога."""
-    await callback.answer()
-    
-    await callback.message.delete()
-    
-    await callback.message.answer(
-        "💬 <b>Продолжаем диалог</b>\n\n"
-        "Напиши свой вопрос или уточнение.\n\n"
-        "Если хочешь завершить — нажми кнопку ниже.",
-        reply_markup=get_continue_dialog_keyboard(),
-        parse_mode="HTML",
     )
 
 
@@ -338,46 +352,40 @@ async def describe_continue(callback: CallbackQuery, state: FSMContext):
 async def describe_finish(callback: CallbackQuery, state: FSMContext):
     """Завершение диалога."""
     await callback.answer("Диалог завершён")
+    
+    data = await state.get_data()
+    dialog_message_id = data.get("dialog_message_id")
+    dialog_text = data.get("dialog_text", "")
+    
+    # Добавляем финальное сообщение
+    final_text = dialog_text + "\n\n✅ <b>Диалог завершён</b>\nСпасибо, что поделились! 🙏"
+    
+    try:
+        await callback.bot.edit_text(
+            chat_id=callback.message.chat.id,
+            message_id=dialog_message_id,
+            text=final_text,
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    except Exception:
+        await callback.message.edit_text(
+            final_text,
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    
     await state.clear()
     
-    await callback.message.delete()
     await callback.message.answer(
-        "✅ Диалог завершён.\n\n"
-        "Спасибо, что поделились! 🙏\n\n"
         "Главное меню:",
         reply_markup=get_main_menu_keyboard(),
     )
 
 
-@router.callback_query(F.data == "describe_new")
-async def describe_new(callback: CallbackQuery, state: FSMContext):
-    """Начать новое описание."""
-    await callback.answer()
-    await state.clear()
-    
-    await callback.message.delete()
-    
-    class FakeMessage:
-        def __init__(self, user_id):
-            self.from_user = type('obj', (object,), {'id': user_id})
-    
-    fake_message = FakeMessage(callback.from_user.id)
-    await start_describe_state(fake_message, state, None)
-
-
-@router.callback_query(F.data == "describe_history")
-async def describe_history(callback: CallbackQuery, state: FSMContext):
-    """Переход к истории."""
-    await callback.answer()
-    await state.clear()
-    
-    from app.bot.handlers.history import show_history
-    await show_history(callback, db_session=None)
-
-
 @router.callback_query(F.data == "describe_back_to_menu")
 async def describe_back_to_menu(callback: CallbackQuery, state: FSMContext):
-    """Возврат в главное меню."""
+    """Возврат в главное меню (без завершения диалога)."""
     await callback.answer()
     await state.clear()
     
