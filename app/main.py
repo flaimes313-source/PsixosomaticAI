@@ -22,13 +22,14 @@ from app.bot.handlers import (
 from app.bot.handlers.surveys import morning as morning_survey_handler
 from app.bot.handlers.surveys import day as day_survey_handler
 from app.bot.handlers.surveys import evening as evening_survey_handler
+from app.bot.handlers import survey_launcher as survey_launcher_handler  # ← НОВЫЙ ИМПОРТ
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
 from app.db.database import check_db_connection, engine, async_session_maker
 from app.services.reminder_service import ReminderService
 from app.services.subscription_service import SubscriptionService
 from app.services.payment_reconciliation_service import PaymentReconciliationService
-from app.services.survey_scheduler import SurveyScheduler  # ← НОВЫЙ ИМПОРТ
+from app.services.survey_scheduler import SurveyScheduler
 from app.webhooks.yookassa import router as yookassa_webhook_router
 from app.db.repositories.subscription import SubscriptionRepository
 
@@ -106,6 +107,7 @@ async def main() -> None:
     dp.include_router(morning_survey_handler.router)  # Утренний опрос
     dp.include_router(day_survey_handler.router)      # Дневной опрос
     dp.include_router(evening_survey_handler.router)  # Вечерний опрос
+    dp.include_router(survey_launcher_handler.router)  # ← НОВЫЙ: запуск опросов по кнопке
     dp.include_router(cancel.router)           # Команда /cancel
     dp.include_router(history.router)          # История анализов
     dp.include_router(errors_router)           # Глобальный обработчик ошибок
@@ -161,7 +163,7 @@ async def main() -> None:
         fastapi_task.cancel()
         await reminder_service.stop()
         await reconciliation_service.stop()
-        await survey_scheduler.stop()  # ← НОВОЕ: ОСТАНОВКА ШЕДУЛЕРА
+        await survey_scheduler.stop()
         await bot.session.close()
         await engine.dispose()
         logger.info("Application stopped")
