@@ -159,7 +159,7 @@ async def handle_profile_button(message: types.Message, state: FSMContext, db_se
     await show_profile(message, state, db_session)
 
 
-# ==================== "🆘 Поддержка" ====================
+# ==================== ИСПРАВЛЕНО: "🆘 Поддержка" ====================
 
 @router.message(lambda msg: msg.text == "🆘 Поддержка")
 async def handle_support_button(message: types.Message, state: FSMContext, db_session: AsyncSession):
@@ -168,5 +168,7 @@ async def handle_support_button(message: types.Message, state: FSMContext, db_se
     """
     logger.info(f"User requested support via button: telegram_id={message.from_user.id}")
     
-    from app.bot.handlers.support import show_support
-    await show_support(message, state, db_session)
+    # ==================== ИСПРАВЛЕНО ====================
+    from app.bot.handlers.support import show_support_menu
+    await show_support_menu(message, state)
+    # ===================================================
