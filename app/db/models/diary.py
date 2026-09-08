@@ -37,6 +37,7 @@ class DiaryEntry(Base):
     # ==================== ОСНОВНЫЕ ПОЛЯ ====================
     symptom: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     symptom_intensity: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=5)
+    mood: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=3)  # ← ДОБАВЛЕНО
     entry_date: Mapped[date] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
