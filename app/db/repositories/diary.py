@@ -118,6 +118,7 @@ class DiaryRepository:
             entry_type="survey_morning",
             symptom=symptom_text[:200],
             symptom_intensity=5,
+            stress=3,  # ← ДОБАВЛЕНО
             morning_q1=answers.get("q1"),
             morning_q2=answers.get("q2"),
             morning_q3=answers.get("q3"),
@@ -146,6 +147,7 @@ class DiaryRepository:
             entry_type="survey_day",
             symptom=symptom_text[:200],
             symptom_intensity=5,
+            stress=3,  # ← ДОБАВЛЕНО
             day_q1=answers.get("q1"),
             day_q2=answers.get("q2"),
             day_q3=answers.get("q3"),
@@ -171,6 +173,7 @@ class DiaryRepository:
             entry_type="survey_evening",
             symptom=symptom_text[:200],
             symptom_intensity=5,
+            stress=3,  # ← ДОБАВЛЕНО
             evening_q1=answers.get("q1"),
             evening_q2=answers.get("q2"),
             evening_q3=answers.get("q3"),
@@ -202,6 +205,7 @@ class DiaryRepository:
             entry_type="describe_state",
             symptom=description[:200],
             symptom_intensity=5,
+            stress=3,  # ← ДОБАВЛЕНО
             description=description,
             ai_response=ai_response,
             analysis_text=analysis_text or ai_response,
@@ -225,6 +229,7 @@ class DiaryRepository:
             entry_type="clarification",
             symptom=question[:200],
             symptom_intensity=5,
+            stress=3,  # ← ДОБАВЛЕНО
             clarification_question=question,
             clarification_answer=answer,
             analysis_id=analysis_id,
@@ -248,6 +253,7 @@ class DiaryRepository:
             entry_type="analysis",
             symptom=symptom[:200],
             symptom_intensity=5,
+            stress=3,  # ← ДОБАВЛЕНО
             description=symptom,
             analysis_text=analysis_text,
             micro_action=micro_action,
