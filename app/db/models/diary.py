@@ -103,11 +103,13 @@ class DiaryEntry(Base):
         "User",
         back_populates="diary_entries",
     )
+    # ==================== ИСПРАВЛЕНО ====================
     analysis: Mapped[Optional["Analysis"]] = relationship(
         "Analysis",
         foreign_keys=[analysis_id],
-        backref="diary_entries",
+        back_populates="diary_entry",  # ← ИЗМЕНЕНО ИМЯ
     )
+    # ==============================================
 
     def __repr__(self) -> str:
         return f"<DiaryEntry(id={self.id}, user_id={self.user_id}, date={self.entry_date})>"

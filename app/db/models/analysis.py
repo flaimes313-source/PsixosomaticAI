@@ -3,7 +3,7 @@
 """
 from sqlalchemy import (
     Integer,
-    BigInteger,  # ← ДОБАВЛЕНО
+    BigInteger,
     String,
     Text,
     DateTime,
@@ -28,9 +28,8 @@ class Analysis(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     
-    # 🔥 ИСПРАВЛЕНО: Integer → BigInteger
     user_id: Mapped[int] = mapped_column(
-        BigInteger,  # ← ИЗМЕНЕНО
+        BigInteger,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -55,7 +54,7 @@ class Analysis(Base):
         nullable=False,
     )
     
-    # Связи
+    # ==================== СВЯЗИ ====================
     user: Mapped["User"] = relationship("User", back_populates="analyses")
     
     clarifications: Mapped[List["Clarification"]] = relationship(
@@ -65,12 +64,14 @@ class Analysis(Base):
         order_by="Clarification.created_at",
     )
     
-    diary_entries: Mapped[List["DiaryEntry"]] = relationship(
+    # ==================== ИСПРАВЛЕНО: diary_entry (было diary_entries) ====================
+    diary_entry: Mapped[List["DiaryEntry"]] = relationship(
         "DiaryEntry",
         back_populates="analysis",
         cascade="all, delete-orphan",
         order_by="DiaryEntry.created_at",
     )
+    # ====================================================================================
 
     def __repr__(self) -> str:
         return f"<Analysis(id={self.id}, user_id={self.user_id}, symptom={self.symptom[:30]})>"
