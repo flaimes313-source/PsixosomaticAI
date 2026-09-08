@@ -110,7 +110,7 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
-            # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+            # ==================== СОХРАНЯЕМ В ДНЕВНИК (ИСПРАВЛЕНО) ====================
             try:
                 user_result = await db_session.execute(
                     select(User).where(User.telegram_id == telegram_id)
@@ -119,18 +119,19 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
                 
                 if user and analysis_id:
                     diary_repo = DiaryRepository(db_session)
-                    await diary_repo.save_describe_state(
+                    # ==================== ИСПОЛЬЗУЕМ save_analysis (РАБОТАЕТ!) ====================
+                    await diary_repo.save_analysis(
                         user_id=user.id,
-                        description=description,
-                        ai_response=answer,
-                        analysis_id=analysis_id,
+                        symptom=description[:200],
                         analysis_text=answer,
                         summary=description[:100],
+                        analysis_id=analysis_id,
                     )
+                    # ============================================================================
                     logger.info(f"Describe state saved to diary for user {telegram_id}")
             except Exception as e:
                 logger.error(f"Failed to save describe state to diary: {e}")
-            # ===============================================================
+            # ================================================================================
             
             dialog_text = f"📝 <b>Ты написал:</b>\n{description}\n\n"
             dialog_text += f"🧠 <b>Я думаю:</b>\n{answer}\n\n"
