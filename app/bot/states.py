@@ -52,6 +52,7 @@ class DynamicsStates(StatesGroup):
     Состояния для раздела "Моя динамика".
     """
     choosing_period = State()          # Выбор периода (7/14/30/90 дней)
+    waiting_for_custom_period = State()  # Ожидание ввода своего периода
     viewing_report = State()           # Просмотр отчёта
 
 
@@ -128,7 +129,8 @@ class DescribeStateStates(StatesGroup):
     """
     Состояния для сценария «Описать состояние».
     """
-    waiting_for_description = State()
+    waiting_for_description = State()  # Ожидание первого описания
+    waiting_for_continue = State()     # Продолжение диалога
 
 
 # ==================== ОПРОСНИКИ (УТРО/ДЕНЬ/ВЕЧЕР) ====================
@@ -167,9 +169,3 @@ class EveningSurveyStates(StatesGroup):
     waiting_for_question_5 = State()  # Как с едой, сном, движением?
     waiting_for_clarification = State()  # Уточняющие вопросы
     waiting_for_reminder = State()  # Интерактив (напоминание)
-class DescribeStateStates(StatesGroup):
-    """
-    Состояния для сценария «Описать состояние».
-    """
-    waiting_for_description = State()  # Ожидание первого описания
-    waiting_for_continue = State()     # Продолжение диалога

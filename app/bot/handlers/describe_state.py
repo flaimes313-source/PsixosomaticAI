@@ -16,6 +16,7 @@ from app.services.access_service import AccessService
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
 from app.db.repositories.clarification import ClarificationRepository
+from app.db.repositories.diary import DiaryRepository
 from app.utils.logging import logger
 
 router = Router()
@@ -23,14 +24,11 @@ router = Router()
 
 @router.message(F.text == "📝 Описать состояние")
 async def start_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """
-    Запускает сценарий «Описать состояние» (полноценный диалог).
-    """
+    """Запускает сценарий «Описать состояние» (полноценный диалог)."""
     await state.clear()
     
     telegram_id = message.from_user.id
     
-    # Проверяем лимит
     access_service = AccessService(db_session)
     can_use, limit_message = await access_service.can_use_body_analysis(telegram_id)
     
@@ -44,7 +42,6 @@ async def start_describe_state(message: types.Message, state: FSMContext, db_ses
     
     await state.set_state(DescribeStateStates.waiting_for_description)
     
-    # Отправляем первое сообщение, которое будем редактировать
     dialog_message = await message.answer(
         "📝 <b>Расскажи, как ты себя чувствуешь</b>\n\n"
         "Можешь описать тело, эмоции, мысли, сон, еду или нагрузку — что сейчас важно.\n"
@@ -58,16 +55,13 @@ async def start_describe_state(message: types.Message, state: FSMContext, db_ses
         parse_mode="HTML",
     )
     
-    # Сохраняем ID сообщения для редактирования
     await state.update_data(dialog_message_id=dialog_message.message_id)
     logger.info(f"User started describe state: {telegram_id}")
 
 
 @router.message(DescribeStateStates.waiting_for_description, F.text)
 async def process_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """
-    Обрабатывает первое описание состояния и запускает AI-диалог.
-    """
+    """Обрабатывает первое описание состояния и запускает AI-диалог."""
     telegram_id = message.from_user.id
     description = message.text.strip()
     
@@ -78,7 +72,6 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
         )
         return
     
-    # SAFETY проверка
     safety_result = safety_service.check_input(description)
     if safety_result.level == SafetyLevel.CRITICAL:
         await message.answer(
@@ -88,41 +81,35 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
         await state.clear()
         return
     
-    # Получаем ID сообщения для редактирования
     data = await state.get_data()
     dialog_message_id = data.get("dialog_message_id")
     
-    # Отправляем статус "печатает"
     loading_message = await message.answer(
         "🧠 <b>Думаю над твоим состоянием...</b>\n\nПожалуйста, подожди.",
         parse_mode="HTML",
     )
     
     try:
-        # Отправляем запрос к AI
         result = await ai_service.describe_state(
             description=description,
             telegram_id=telegram_id,
             db_session=db_session,
         )
         
-        # ==================== ИСПРАВЛЕНО: безопасное удаление ====================
         try:
             await loading_message.delete()
         except Exception:
             pass
-        # ========================================================================
         
         if result["success"]:
             answer = result["answer"]
             saved = result.get("saved", False)
             analysis_id = result.get("analysis_id")
+            user_id = result.get("user_id")
             
-            # Увеличиваем счётчик
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
-            # Формируем полный диалог
             dialog_text = f"📝 <b>Ты написал:</b>\n{description}\n\n"
             dialog_text += f"🧠 <b>Я думаю:</b>\n{answer}\n\n"
             
@@ -132,9 +119,9 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             dialog_text += "━━━━━━━━━━━━━━━━━━━\n\n"
             dialog_text += "💬 <b>Продолжим диалог?</b>\nНапиши следующий вопрос или уточнение."
             
-            # Сохраняем данные в FSM
             await state.update_data(
                 analysis_id=analysis_id,
+                user_id=user_id,
                 is_dialog_active=True,
                 dialog_history=[
                     {"role": "user", "content": description},
@@ -145,7 +132,6 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             )
             await state.set_state(DescribeStateStates.waiting_for_continue)
             
-            # Редактируем сообщение
             try:
                 await message.bot.edit_text(
                     chat_id=message.chat.id,
@@ -156,14 +142,12 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
                 )
             except Exception as e:
                 logger.error(f"Error editing message: {e}")
-                # Если не удалось отредактировать — отправляем новое
                 await message.answer(
                     dialog_text,
                     reply_markup=get_continue_dialog_keyboard(),
                     parse_mode="HTML",
                 )
             
-            # Удаляем сообщение пользователя (оно уже есть в диалоге)
             try:
                 await message.delete()
             except Exception:
@@ -180,12 +164,10 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             await state.clear()
             
     except Exception as e:
-        # ==================== ИСПРАВЛЕНО: безопасное удаление ====================
         try:
             await loading_message.delete()
         except Exception:
             pass
-        # ========================================================================
         logger.error(f"Error in describe state: {e}")
         await message.answer(
             "😔 Произошла техническая ошибка. Попробуйте ещё раз.",
@@ -198,9 +180,7 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
 
 @router.message(DescribeStateStates.waiting_for_continue, F.text)
 async def continue_describe_dialog(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """
-    Продолжает диалог — каждое новое сообщение добавляется в общий диалог.
-    """
+    """Продолжает диалог — каждое новое сообщение добавляется в общий диалог."""
     telegram_id = message.from_user.id
     user_text = message.text.strip()
     
@@ -210,7 +190,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         )
         return
     
-    # SAFETY проверка
     safety_result = safety_service.check_input(user_text)
     if safety_result.level == SafetyLevel.CRITICAL:
         await message.answer(
@@ -220,30 +199,26 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         await state.clear()
         return
     
-    # Получаем данные из FSM
     data = await state.get_data()
     analysis_id = data.get("analysis_id")
+    user_id = data.get("user_id")
     dialog_history = data.get("dialog_history", [])
     dialog_text = data.get("dialog_text", "")
     dialog_message_id = data.get("dialog_message_id")
     
-    # Добавляем сообщение пользователя
     dialog_history.append({"role": "user", "content": user_text})
     
-    # Отправляем статус "печатает"
     loading_message = await message.answer(
         "🧠 <b>Думаю...</b>\n\nПожалуйста, подожди.",
         parse_mode="HTML",
     )
     
     try:
-        # Формируем полный контекст для AI
         context = ""
         for msg in dialog_history:
             role = "Пользователь" if msg.get("role") == "user" else "Ты (AI)"
             context += f"{role}: {msg.get('content')}\n"
         
-        # Отправляем запрос к YandexGPT
         from app.services.yandex_gpt import YandexGPTClient
         
         system_prompt = """
@@ -282,14 +257,11 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
             max_tokens=3000,
         )
         
-        # ==================== ИСПРАВЛЕНО: безопасное удаление ====================
         try:
             await loading_message.delete()
         except Exception:
             pass
-        # ========================================================================
         
-        # Добавляем ответ AI в историю
         dialog_history.append({"role": "assistant", "content": response})
         
         # Сохраняем в БД (как уточнение к анализу)
@@ -302,16 +274,25 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
                 
                 if user:
                     clarification_repo = ClarificationRepository(db_session)
-                    await clarification_repo.create(
+                    clarification = await clarification_repo.create(
                         analysis_id=analysis_id,
                         user_id=user.id,
                         question=user_text,
                         answer=response,
                     )
+                    
+                    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+                    diary_repo = DiaryRepository(db_session)
+                    await diary_repo.save_clarification(
+                        user_id=user.id,
+                        question=user_text,
+                        answer=response,
+                        analysis_id=analysis_id,
+                    )
+                    logger.info(f"Clarification saved to diary for user {telegram_id}")
         except Exception as e:
             logger.error(f"Failed to save clarification: {e}")
         
-        # Обновляем полный диалог
         last_messages = dialog_history[-10:] if len(dialog_history) > 10 else dialog_history
         
         new_dialog_text = "📝 <b>Твой диалог с AI</b>\n\n"
@@ -324,13 +305,11 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         new_dialog_text += "━━━━━━━━━━━━━━━━━━━\n\n"
         new_dialog_text += "💬 <b>Продолжим?</b>\nНапиши следующий вопрос или уточнение."
         
-        # Обновляем FSM
         await state.update_data(
             dialog_history=dialog_history,
             dialog_text=new_dialog_text,
         )
         
-        # Редактируем сообщение
         try:
             await message.bot.edit_text(
                 chat_id=message.chat.id,
@@ -347,19 +326,16 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
                 parse_mode="HTML",
             )
         
-        # Удаляем сообщение пользователя (оно уже есть в диалоге)
         try:
             await message.delete()
         except Exception:
             pass
         
     except Exception as e:
-        # ==================== ИСПРАВЛЕНО: безопасное удаление ====================
         try:
             await loading_message.delete()
         except Exception:
             pass
-        # ========================================================================
         logger.error(f"Error in continue dialog: {e}")
         await message.answer(
             "😔 Произошла ошибка. Попробуйте ещё раз.",

@@ -22,6 +22,7 @@ from app.services.ai_service import ai_service
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
 from app.db.repositories.analysis import AnalysisRepository
+from app.db.repositories.diary import DiaryRepository
 from app.utils.logging import logger
 from app.utils.survey_formatter import format_morning_survey_analysis
 
@@ -35,7 +36,6 @@ AFFIRMATIONS = [
     "Утро задаёт тон дню. Как ты начнёшь его?",
 ]
 
-# Индекс для чередования аффирмаций (будет храниться в БД или в памяти)
 affirmation_index = 0
 
 
@@ -54,7 +54,6 @@ async def start_morning_survey(message: types.Message, state: FSMContext, db_ses
     """
     await state.clear()
     
-    # Показываем аффирмацию
     affirmation = get_next_affirmation()
     await message.answer(
         f"🌅 <b>Доброе утро!</b>\n\n"
@@ -173,7 +172,6 @@ async def process_morning_q5(message: types.Message, state: FSMContext, db_sessi
     
     await state.update_data(q5=answer)
     
-    # Собираем все ответы
     data = await state.get_data()
     survey_data = {
         "q1": data.get("q1"),
@@ -186,12 +184,11 @@ async def process_morning_q5(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(survey_data=survey_data)
     await state.set_state(MorningSurveyStates.waiting_for_clarification)
     
-    # Уточняющие вопросы
     await message.answer(
         "📝 <b>Давай уточним</b>\n\n"
         "Где именно ты чувствуешь напряжение или дискомфорт?\n"
         "(Или напиши 'Пропустить', если не хочешь уточнять)",
-        reply_markup=get_morning_question_2_keyboard(),  # переиспользуем
+        reply_markup=get_morning_question_2_keyboard(),
         parse_mode="HTML",
     )
 
@@ -208,7 +205,6 @@ async def process_morning_clarification(message: types.Message, state: FSMContex
     
     await state.update_data(clarification=answer)
     
-    # Второй уточняющий вопрос
     await message.answer(
         "📝 <b>Что сейчас сильнее всего влияет на твоё состояние?</b>\n"
         "(Или напиши 'Пропустить')",
@@ -234,8 +230,8 @@ async def process_morning_second_clarification(message: types.Message, state: FS
     survey_data = data.get("survey_data", {})
     clarification = data.get("clarification", "Не указано")
     second_clarification = data.get("second_clarification", "Не указано")
+    telegram_id = message.from_user.id
     
-    # Формируем текст для AI
     symptom_text = (
         f"Утреннее состояние:\n"
         f"1. Как проснулся: {survey_data.get('q1', 'Не указано')}\n"
@@ -253,12 +249,11 @@ async def process_morning_second_clarification(message: types.Message, state: FS
     )
     
     try:
-        # Используем существующий метод анализа
         result = await ai_service.analyze_and_save(
-            telegram_id=message.from_user.id,
-            symptom=symptom_text[:200],  # обрезаем для сохранения
+            telegram_id=telegram_id,
+            symptom=symptom_text[:200],
             duration="Утро",
-            intensity=5,  # значение по умолчанию
+            intensity=5,
             context="Утренний опрос",
             db_session=db_session,
         )
@@ -267,18 +262,35 @@ async def process_morning_second_clarification(message: types.Message, state: FS
         
         if result["success"]:
             analysis = result["analysis"]
+            analysis_id = result.get("analysis_id")
             
-            # Увеличиваем счётчик
             from app.services.access_service import AccessService
             access_service = AccessService(db_session)
-            await access_service.increment_body_analysis(message.from_user.id)
+            await access_service.increment_body_analysis(telegram_id)
             
-            # Форматируем ответ с учётом двух подходов
+            # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+            user_result = await db_session.execute(
+                select(User).where(User.telegram_id == telegram_id)
+            )
+            user = user_result.scalar_one_or_none()
+            
+            if user:
+                diary_repo = DiaryRepository(db_session)
+                await diary_repo.save_survey_morning(
+                    user_id=user.id,
+                    answers=survey_data,
+                    analysis_text=analysis.summary if hasattr(analysis, 'summary') else str(analysis),
+                    micro_action=analysis.micro_action if hasattr(analysis, 'micro_action') else None,
+                    summary=analysis.summary if hasattr(analysis, 'summary') else None,
+                    medical_warning=analysis.medical_warning if hasattr(analysis, 'medical_warning') else None,
+                    analysis_id=analysis_id,
+                )
+                logger.info(f"Morning survey saved to diary for user {telegram_id}")
+            # ==============================================================
+            
             result_text = format_morning_survey_analysis(analysis, survey_data)
             
-            # Показываем микродействие
             micro_action = analysis.micro_action or "Попробуй сделать 5 глубоких вдохов и выдохов, чтобы настроиться на день."
-            
             result_text += f"\n\n🌱 <b>Микродействие на сегодня:</b>\n{micro_action}\n\n"
             
             await state.clear()
@@ -289,7 +301,7 @@ async def process_morning_second_clarification(message: types.Message, state: FS
                 parse_mode="HTML",
             )
             
-            logger.info(f"Morning survey completed: user={message.from_user.id}")
+            logger.info(f"Morning survey completed: user={telegram_id}")
             
         else:
             await message.answer(

@@ -18,13 +18,13 @@ from app.utils.logging import logger
 class SurveyScheduler:
     """
     Сервис для планирования и отправки опросов.
-    Отправляет утренний, дневной и вечерний опросы в заданное время.
+    Отправляет утренний, дневной и вечерний опросы в заданное время (по часовому поясу пользователя).
     """
     
-    # Время по умолчанию (UTC)
-    MORNING_TIME = time(8, 0)    # 8:00
-    DAY_TIME = time(13, 0)       # 13:00
-    EVENING_TIME = time(20, 0)   # 20:00
+    # Время опросов (в локальном времени пользователя)
+    MORNING_HOUR = 8
+    DAY_HOUR = 13
+    EVENING_HOUR = 20
     
     def __init__(
         self,
@@ -62,11 +62,8 @@ class SurveyScheduler:
         """Основной цикл шедулера."""
         while self._running:
             try:
-                now = datetime.now()
-                
                 # Проверяем каждые 30 секунд
                 await self._check_and_send_surveys()
-                
                 await asyncio.sleep(30)
                 
             except asyncio.CancelledError:
@@ -76,46 +73,50 @@ class SurveyScheduler:
                 await asyncio.sleep(60)
     
     async def _check_and_send_surveys(self):
-        """Проверяет время и отправляет опросы."""
+        """Проверяет время и отправляет опросы пользователям."""
         now = datetime.now()
         current_time = now.time()
+        current_hour = current_time.hour
+        current_minute = current_time.minute
         
-        minute_window = 60
-        
-        if self._is_time_match(current_time, self.MORNING_TIME, minute_window):
-            await self._send_morning_surveys()
-        
-        if self._is_time_match(current_time, self.DAY_TIME, minute_window):
-            await self._send_day_surveys()
-        
-        if self._is_time_match(current_time, self.EVENING_TIME, minute_window):
-            await self._send_evening_surveys()
-    
-    def _is_time_match(self, current: time, target: time, window_seconds: int = 60) -> bool:
-        current_seconds = current.hour * 3600 + current.minute * 60 + current.second
-        target_seconds = target.hour * 3600 + target.minute * 60
-        diff = current_seconds - target_seconds
-        return 0 <= diff < window_seconds
+        # ==================== НОВАЯ ЛОГИКА: ОТПРАВКА ПО ЧАСОВОМУ ПОЯСУ ====================
+        # Проверяем каждую минуту (не каждые 30 секунд, чтобы не пропустить)
+        if current_minute == 0:  # Проверяем только в начале каждой минуты
+            # Утренний опрос (8:00)
+            if current_hour == self.MORNING_HOUR:
+                await self._send_morning_surveys()
+            
+            # Дневной опрос (13:00)
+            if current_hour == self.DAY_HOUR:
+                await self._send_day_surveys()
+            
+            # Вечерний опрос (20:00)
+            if current_hour == self.EVENING_HOUR:
+                await self._send_evening_surveys()
+        # =================================================================================
     
     async def _send_morning_surveys(self):
-        """Отправляет утренние опросы."""
+        """Отправляет утренние опросы всем пользователям (по их часовому поясу)."""
         logger.info("🌅 Sending morning surveys...")
-        await self._send_survey_to_users("morning")
+        await self._send_survey_to_users("morning", self.MORNING_HOUR)
     
     async def _send_day_surveys(self):
-        """Отправляет дневные опросы."""
+        """Отправляет дневные опросы всем пользователям (по их часовому поясу)."""
         logger.info("☀️ Sending day surveys...")
-        await self._send_survey_to_users("day")
+        await self._send_survey_to_users("day", self.DAY_HOUR)
     
     async def _send_evening_surveys(self):
-        """Отправляет вечерние опросы."""
+        """Отправляет вечерние опросы всем пользователям (по их часовому поясу)."""
         logger.info("🌆 Sending evening surveys...")
-        await self._send_survey_to_users("evening")
+        await self._send_survey_to_users("evening", self.EVENING_HOUR)
     
-    async def _send_survey_to_users(self, survey_type: str):
-        """Отправляет опрос всем активным пользователям."""
+    async def _send_survey_to_users(self, survey_type: str, target_hour: int):
+        """
+        Отправляет опрос всем пользователям, у которых сейчас target_hour по их часовому поясу.
+        """
         try:
             async with self.session_maker() as session:
+                # Получаем всех активных пользователей
                 result = await session.execute(
                     select(User).where(
                         User.is_active == True,
@@ -124,14 +125,44 @@ class SurveyScheduler:
                 )
                 users = result.scalars().all()
                 
-                logger.info(f"Sending {survey_type} survey to {len(users)} users")
+                logger.info(f"Sending {survey_type} survey: checking {len(users)} users")
                 
+                sent_count = 0
                 for user in users:
-                    await self._send_survey_to_user(user, survey_type)
-                    await asyncio.sleep(0.2)
+                    # Проверяем, совпадает ли час у пользователя
+                    if await self._should_send_survey_to_user(user, target_hour):
+                        await self._send_survey_to_user(user, survey_type)
+                        sent_count += 1
+                        await asyncio.sleep(0.2)  # Задержка между отправками
+                
+                logger.info(f"{survey_type} survey sent to {sent_count} users")
                     
         except Exception as e:
             logger.error(f"Error sending {survey_type} surveys: {e}")
+    
+    async def _should_send_survey_to_user(self, user: User, target_hour: int) -> bool:
+        """
+        Проверяет, должен ли пользователь получить опрос в данный момент.
+        """
+        try:
+            # Получаем часовой пояс пользователя
+            tz_str = user.timezone or "UTC"
+            try:
+                tz = ZoneInfo(tz_str)
+            except Exception:
+                tz = ZoneInfo("UTC")
+            
+            # Текущее время в часовом поясе пользователя
+            now = datetime.now(tz)
+            current_hour = now.hour
+            current_minute = now.minute
+            
+            # Проверяем, совпадает ли час (и минута = 0, чтобы отправить ровно в начале часа)
+            return current_hour == target_hour and current_minute == 0
+            
+        except Exception as e:
+            logger.error(f"Error checking timezone for user {user.telegram_id}: {e}")
+            return False
     
     async def _send_survey_to_user(self, user: User, survey_type: str):
         """Отправляет опрос одному пользователю."""

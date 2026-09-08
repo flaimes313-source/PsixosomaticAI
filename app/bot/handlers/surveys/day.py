@@ -19,7 +19,7 @@ from app.bot.keyboards import get_main_menu_keyboard
 from app.services.ai_service import ai_service
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
-from app.db.repositories.analysis import AnalysisRepository
+from app.db.repositories.diary import DiaryRepository
 from app.utils.logging import logger
 
 router = Router()
@@ -106,7 +106,6 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
     
     await state.update_data(q3=answer)
     
-    # Собираем все ответы
     data = await state.get_data()
     survey_data = {
         "q1": data.get("q1"),
@@ -114,7 +113,6 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
         "q3": answer,
     }
     
-    # Формируем текст для поддержки
     support_text = (
         "☀️ <b>Спасибо за ответы!</b>\n\n"
         f"📊 <b>Краткая сводка:</b>\n"
@@ -123,7 +121,6 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
         f"• Влияние: {survey_data.get('q3', 'Не указано')}\n\n"
     )
     
-    # Генерируем поддерживающий ответ на основе состояния
     state_text = survey_data.get('q1', '').lower()
     if 'тревожно' in state_text or 'устало' in state_text:
         support_text += (
@@ -151,6 +148,23 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
     
     support_text += "\n\nВсе ответы сохранены в дневник."
     
+    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+    telegram_id = message.from_user.id
+    user_result = await db_session.execute(
+        select(User).where(User.telegram_id == telegram_id)
+    )
+    user = user_result.scalar_one_or_none()
+    
+    if user:
+        diary_repo = DiaryRepository(db_session)
+        await diary_repo.save_survey_day(
+            user_id=user.id,
+            answers=survey_data,
+            analysis_id=None,
+        )
+        logger.info(f"Day survey saved to diary for user {telegram_id}")
+    # ==============================================================
+    
     await state.clear()
     
     await message.answer(
@@ -159,7 +173,7 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
         parse_mode="HTML",
     )
     
-    logger.info(f"Day survey completed: user={message.from_user.id}")
+    logger.info(f"Day survey completed: user={telegram_id}")
 
 
 @router.callback_query(F.data == "day_finish")

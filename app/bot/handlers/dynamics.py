@@ -1,25 +1,21 @@
 """
-Обработчик для раздела "Моя динамика".
+Обработчик для раздела «Моя динамика».
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from datetime import datetime, timedelta, date
+from typing import Optional
 
 from app.bot.states import DynamicsStates
 from app.bot.keyboards.dynamics import (
     get_dynamics_period_keyboard,
-    get_dynamics_actions_keyboard,
-    get_dynamics_locked_keyboard,
+    get_dynamics_cancel_keyboard,
 )
 from app.bot.keyboards import get_main_menu_keyboard
-from app.schemas.dynamics import PeriodType
 from app.services.dynamics_service import DynamicsService
-from app.services.ai_service import AIService
 from app.services.access_service import AccessService
-from app.services.usage_service import UsageService
-from app.db.models.user import User
 from app.utils.logging import logger
 
 router = Router()
@@ -27,245 +23,284 @@ router = Router()
 
 @router.message(F.text == "📊 Моя динамика")
 async def show_dynamics_menu(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Показывает меню выбора периода для динамики."""
+    """
+    Показывает меню выбора периода для динамики.
+    """
     await state.clear()
     
-    user_id = message.from_user.id
+    telegram_id = message.from_user.id
     
-    # Проверяем, PRO ли пользователь
+    # Проверяем доступ (PRO или FREE)
     access_service = AccessService(db_session)
-    is_pro = await access_service.is_pro(user_id)
+    is_pro = await access_service.is_pro(telegram_id)
+    
+    period_text = (
+        "📊 <b>Моя динамика</b>\n\n"
+        "Я покажу тебе, как менялось твоё состояние за выбранный период.\n\n"
+        "Выбери период:"
+    )
+    
+    if not is_pro:
+        period_text += "\n\n🔓 <b>Бесплатно:</b> 7 дней\n💎 <b>PRO:</b> 30 и 90 дней"
     
     await message.answer(
-        "📊 Моя динамика\n\n"
-        "За какой период хочешь посмотреть динамику?\n\n"
-        "🔍 Минимум для анализа — 3 записи в дневнике.\n\n"
-        "⭐ 30 и 90 дней доступны в PRO",
-        reply_markup=get_dynamics_period_keyboard(is_pro),
+        period_text,
+        reply_markup=get_dynamics_period_keyboard(),
+        parse_mode="HTML",
     )
-    logger.info(f"User opened dynamics menu: {message.from_user.id}")
+    await state.set_state(DynamicsStates.choosing_period)
+    logger.info(f"User opened dynamics menu: {telegram_id}")
 
 
 @router.callback_query(F.data.startswith("dynamics_period_"))
-async def process_dynamics_period(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Обрабатывает выбор периода и запускает анализ."""
-    await callback.answer("Анализирую...")
+async def process_period_selection(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """
+    Обрабатывает выбор периода.
+    """
+    await callback.answer()
     
-    # Проверяем, не заблокирован ли период
-    if callback.data.endswith("_locked"):
+    period_key = callback.data.replace("dynamics_period_", "")
+    telegram_id = callback.from_user.id
+    access_service = AccessService(db_session)
+    
+    # Обработка "Свой период"
+    if period_key == "custom":
         await callback.message.edit_text(
-            "⭐ Эта функция доступна в PRO.\n\n"
-            "📊 30 и 90 дней динамики, расширенные отчёты и неограниченный дневник ждут тебя!",
-            reply_markup=get_dynamics_locked_keyboard(),
+            "📝 <b>Введи свой период</b>\n\n"
+            "Напиши количество дней (например: 5, 14, 21)\n"
+            "Или укажи даты в формате ДД.ММ.ГГГГ-ДД.ММ.ГГГГ\n"
+            "Например: 01.09.2026-07.09.2026\n\n"
+            "Напиши 'Отмена', чтобы выйти.",
+            reply_markup=None,
+        )
+        await state.set_state(DynamicsStates.waiting_for_custom_period)
+        return
+    
+    # Проверка доступа для 30 и 90 дней
+    if period_key in ["30", "90"]:
+        is_pro = await access_service.is_pro(telegram_id)
+        if not is_pro:
+            pro_keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="⭐ Подключить PRO",
+                        callback_data="pro_pay"
+                    )],
+                    [InlineKeyboardButton(
+                        text="🔙 Назад",
+                        callback_data="dynamics_back_to_menu"
+                    )]
+                ]
+            )
+            await callback.message.edit_text(
+                "💎 <b>Динамика за 30 и 90 дней доступна только в PRO</b>\n\n"
+                "В бесплатной версии доступна динамика за 7 дней.\n\n"
+                "Перейди на PRO, чтобы получить расширенную аналитику!",
+                reply_markup=pro_keyboard,
+                parse_mode="HTML",
+            )
+            return
+    
+    period_days = int(period_key)
+    await _show_dynamics_report(callback.message, state, db_session, telegram_id, period_days)
+
+
+@router.message(DynamicsStates.waiting_for_custom_period, F.text)
+async def process_custom_period(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """
+    Обрабатывает ввод своего периода.
+    """
+    text = message.text.strip()
+    telegram_id = message.from_user.id
+    
+    if text.lower() == "отмена":
+        await state.clear()
+        await message.answer(
+            "Главное меню:",
+            reply_markup=get_main_menu_keyboard(),
         )
         return
     
-    period_type_str = callback.data.replace("dynamics_period_", "")
-    period_type = PeriodType(period_type_str)
+    # Пробуем распарсить как количество дней
+    try:
+        period_days = int(text)
+        if period_days < 1 or period_days > 365:
+            await message.answer(
+                "⚠️ Пожалуйста, укажи количество дней от 1 до 365.",
+                reply_markup=get_dynamics_cancel_keyboard(),
+            )
+            return
+        await _show_dynamics_report(message, state, db_session, telegram_id, period_days)
+        return
+    except ValueError:
+        pass
     
-    telegram_id = callback.from_user.id
+    # Пробуем распарсить как даты
+    try:
+        parts = text.split("-")
+        if len(parts) != 2:
+            raise ValueError
+        
+        start_date = datetime.strptime(parts[0].strip(), "%d.%m.%Y").date()
+        end_date = datetime.strptime(parts[1].strip(), "%d.%m.%Y").date()
+        
+        if start_date > end_date:
+            await message.answer(
+                "⚠️ Начальная дата не может быть позже конечной.",
+                reply_markup=get_dynamics_cancel_keyboard(),
+            )
+            return
+        
+        period_days = (end_date - start_date).days + 1
+        await _show_dynamics_report(message, state, db_session, telegram_id, period_days, start_date, end_date)
+        return
+    except ValueError:
+        await message.answer(
+            "⚠️ Неверный формат.\n\n"
+            "Напиши количество дней (например: 14)\n"
+            "Или даты в формате: 01.09.2026-07.09.2026",
+            reply_markup=get_dynamics_cancel_keyboard(),
+        )
+        return
+
+
+@router.message(DynamicsStates.waiting_for_custom_period)
+async def process_custom_period_invalid(message: types.Message, state: FSMContext):
+    """Невалидный ввод."""
+    await message.answer(
+        "Пожалуйста, введи количество дней или даты в формате ДД.ММ.ГГГГ-ДД.ММ.ГГГГ",
+        reply_markup=get_dynamics_cancel_keyboard(),
+    )
+
+
+async def _show_dynamics_report(
+    message: types.Message,
+    state: FSMContext,
+    db_session: AsyncSession,
+    telegram_id: int,
+    period_days: int,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+):
+    """
+    Показывает отчёт о динамике.
+    """
+    loading_message = await message.answer(
+        "📊 <b>Анализирую динамику...</b>\n\nПожалуйста, подожди.",
+        parse_mode="HTML",
+    )
     
     try:
-        # Проверяем PRO для 30 и 90 дней
-        access_service = AccessService(db_session)
-        period_days = {
-            "7_days": 7,
-            "14_days": 14,
-            "30_days": 30,
-            "90_days": 90,
-        }.get(period_type_str, 7)
-        
-        if period_days > 7:
-            can_use = await access_service.can_run_dynamics(telegram_id, period_days)
-            if not can_use:
-                await callback.message.edit_text(
-                    "⭐ Эта функция доступна в PRO.\n\n"
-                    "📊 30 и 90 дней динамики, расширенные отчёты и неограниченный дневник ждут тебя!",
-                    reply_markup=get_dynamics_locked_keyboard(),
-                )
-                return
-        
-        # Находим пользователя
-        result = await db_session.execute(
-            select(User).where(User.telegram_id == telegram_id)
-        )
-        user = result.scalar_one_or_none()
-        
-        if not user:
-            await callback.message.edit_text(
-                "⚠️ Пользователь не найден. Отправьте /start",
-                reply_markup=None,
-            )
-            return
-        
-        # Проверяем лимит использования динамики
-        usage_service = UsageService(db_session)
-        can_use, message_text = await access_service.check_and_increment_dynamics(telegram_id)
-        if not can_use:
-            await callback.message.edit_text(
-                message_text,
-                reply_markup=get_dynamics_locked_keyboard(),
-            )
-            return
-        
-        await state.update_data(period_type=period_type)
-        
-        # Расчитываем статистику
+        # Создаём сервис
         dynamics_service = DynamicsService(db_session)
-        stats = await dynamics_service.calculate_statistics(user.id, period_type)
         
-        if not stats:
-            await callback.message.edit_text(
-                "📊 Недостаточно данных для анализа динамики.\n\n"
-                f"Нужно минимум 3 записи в дневнике за период.\n"
-                f"Добавь ещё несколько записей в 📔 Дневник, и я смогу найти возможные закономерности.",
-                reply_markup=get_dynamics_actions_keyboard(),
-            )
-            return
-        
-        await state.update_data(stats=stats)
-        
-        # Формируем базовую статистику
-        base_report = _format_basic_stats(stats)
-        
-        # Показываем, что идёт анализ AI
-        await callback.message.edit_text(
-            f"{base_report}\n\n"
-            "🤔 Анализирую динамику с помощью AI...",
-            reply_markup=None,
+        # Получаем отчёт
+        result = await dynamics_service.get_report(
+            user_id=telegram_id,
+            period_days=period_days,
+            start_date=start_date,
+            end_date=end_date,
         )
         
-        # Запускаем AI-анализ
-        ai_service = AIService()
-        report = await ai_service.analyze_dynamics(stats)
+        await loading_message.delete()
         
-        # Увеличиваем счётчик использования
-        await usage_service.increment_dynamics(telegram_id)
-        
-        if report:
-            full_report = _format_dynamics_report(stats, report)
-            await callback.message.edit_text(
-                full_report,
-                reply_markup=get_dynamics_actions_keyboard(),
+        if not result["success"]:
+            await message.answer(
+                f"📊 <b>Динамика</b>\n\n{result['message']}\n\n"
+                "Начни вести дневник, чтобы я мог анализировать твоё состояние!",
+                reply_markup=get_main_menu_keyboard(),
                 parse_mode="HTML",
             )
-            logger.info(f"Dynamics report generated for user {user.id}")
-        else:
-            await callback.message.edit_text(
-                f"{base_report}\n\n"
-                "⚠️ Сейчас не удалось сформировать AI-анализ динамики.\n"
-                "Попробуй ещё раз немного позже.\n\n"
-                "А пока вот базовая статистика за период:",
-                reply_markup=get_dynamics_actions_keyboard(),
-            )
+            return
+        
+        report = result["report"]
+        stats = result["stats"]
+        
+        # Форматируем отчёт
+        period_str = f"{stats.start_date.strftime('%d.%m.%Y')} — {stats.end_date.strftime('%d.%m.%Y')}"
+        
+        text = f"📊 <b>Динамика за {stats.period_days} дней</b>\n"
+        text += f"📅 {period_str}\n"
+        text += f"📝 {stats.entries_count} записей\n\n"
+        
+        text += f"{report.summary}\n\n"
+        
+        if report.main_patterns:
+            text += "📌 <b>Основные закономерности:</b>\n"
+            for pattern in report.main_patterns:
+                text += f"• {pattern}\n"
+            text += "\n"
+        
+        if report.possible_connections:
+            text += "🔗 <b>Возможные связи:</b>\n"
+            for conn in report.possible_connections:
+                text += f"• {conn}\n"
+            text += "\n"
+        
+        if report.positive_changes:
+            text += "✅ <b>Положительные изменения:</b>\n"
+            for change in report.positive_changes:
+                text += f"• {change}\n"
+            text += "\n"
+        
+        if report.areas_to_watch:
+            text += "👀 <b>На что обратить внимание:</b>\n"
+            for area in report.areas_to_watch:
+                text += f"• {area}\n"
+            text += "\n"
+        
+        if report.next_steps:
+            text += "🌱 <b>Что можно попробовать:</b>\n"
+            for step in report.next_steps:
+                text += f"• {step}\n"
+            text += "\n"
+        
+        if report.medical_note:
+            text += f"ℹ️ {report.medical_note}\n\n"
+        
+        # Кнопки для продолжения
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="📊 Другой период",
+                    callback_data="dynamics_new_period"
+                )],
+                [InlineKeyboardButton(
+                    text="🔙 В меню",
+                    callback_data="dynamics_back_to_menu"
+                )]
+            ]
+        )
+        
+        await state.clear()
+        
+        await message.answer(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
         
     except Exception as e:
-        logger.error(f"Error processing dynamics: {e}")
-        await callback.message.edit_text(
-            "⚠️ Не удалось выполнить анализ. Попробуй ещё раз позже.",
-            reply_markup=get_dynamics_actions_keyboard(),
+        await loading_message.delete()
+        logger.error(f"Error in dynamics report: {e}")
+        await message.answer(
+            "😔 Произошла ошибка при формировании отчёта. Попробуйте позже.",
+            reply_markup=get_main_menu_keyboard(),
         )
+        await state.clear()
 
 
-def _format_basic_stats(stats) -> str:
-    """Форматирует базовую статистику без AI."""
-    days = stats.period_days
-    text = (
-        f"📊 Динамика за {days} дней\n"
-        f"📅 {stats.start_date.strftime('%d.%m.%Y')} – {stats.end_date.strftime('%d.%m.%Y')}\n\n"
-        f"📝 Записей: <b>{stats.entries_count}</b>\n"
-        f"🩺 Средняя интенсивность: <b>{stats.average_intensity}/10</b>\n"
-        f"   (мин: {stats.min_intensity}, макс: {stats.max_intensity})\n"
-        f"😰 Средний стресс: <b>{stats.average_stress}/10</b>\n"
-        f"🙂 Среднее настроение: <b>{stats.average_mood}/5</b>\n"
-        f"😴 Средний сон: <b>{stats.average_sleep} ч</b>\n"
-    )
-    
-    if stats.top_symptoms:
-        text += "\n📌 Частые симптомы:\n"
-        for s in stats.top_symptoms[:3]:
-            text += f"• {s.symptom}: {s.count} раз, ср. интенсивность {s.average_intensity}/10\n"
-    
-    return text
-
-
-def _format_dynamics_report(stats, report) -> str:
-    """Форматирует полный отчёт с AI."""
-    days = stats.period_days
-    text = (
-        f"📊 <b>Динамика за {days} дней</b>\n"
-        f"📅 {stats.start_date.strftime('%d.%m.%Y')} – {stats.end_date.strftime('%d.%m.%Y')}\n"
-        f"📝 Записей: <b>{stats.entries_count}</b>\n\n"
-    )
-    
-    text += f"📝 <b>Общая картина</b>\n"
-    text += f"{report.summary}\n\n"
-    
-    text += (
-        f"🩺 Средняя интенсивность: <b>{stats.average_intensity}/10</b>\n"
-        f"😰 Средний стресс: <b>{stats.average_stress}/10</b>\n"
-        f"🙂 Среднее настроение: <b>{stats.average_mood}/5</b>\n"
-        f"😴 Средний сон: <b>{stats.average_sleep} ч</b>\n\n"
-    )
-    
-    if report.main_patterns:
-        text += "🔎 <b>Что заметно</b>\n"
-        for pattern in report.main_patterns[:3]:
-            text += f"• {pattern}\n"
-        text += "\n"
-    
-    if report.possible_connections:
-        text += "💡 <b>Возможные связи</b>\n"
-        for conn in report.possible_connections[:3]:
-            text += f"• {conn}\n"
-        text += "\n"
-    
-    if report.positive_changes:
-        text += "📈 <b>Положительные изменения</b>\n"
-        for change in report.positive_changes[:2]:
-            text += f"• {change}\n"
-        text += "\n"
-    
-    if report.areas_to_watch:
-        text += "👀 <b>На что обратить внимание</b>\n"
-        for area in report.areas_to_watch[:3]:
-            text += f"• {area}\n"
-        text += "\n"
-    
-    if report.next_steps:
-        text += "💪 <b>Что можно попробовать</b>\n"
-        for step in report.next_steps[:3]:
-            text += f"• {step}\n"
-        text += "\n"
-    
-    if report.medical_note:
-        text += f"⚠️ {report.medical_note}\n"
-    
-    return text
+@router.callback_query(F.data == "dynamics_new_period")
+async def dynamics_new_period(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Новый период для динамики."""
+    await callback.answer()
+    await callback.message.delete()
+    await show_dynamics_menu(callback.message, state, db_session)
 
 
 @router.callback_query(F.data == "dynamics_back_to_menu")
-async def back_to_dynamics_menu(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Возврат в меню динамики."""
-    await callback.answer()
-    await state.clear()
-    
-    user_id = callback.from_user.id
-    access_service = AccessService(db_session)
-    is_pro = await access_service.is_pro(user_id)
-    
-    await callback.message.edit_text(
-        "📊 Моя динамика\n\n"
-        "За какой период хочешь посмотреть динамику?\n\n"
-        "🔍 Минимум для анализа — 3 записи в дневнике.\n\n"
-        "⭐ 30 и 90 дней доступны в PRO",
-        reply_markup=get_dynamics_period_keyboard(is_pro),
-    )
-
-
-@router.callback_query(F.data == "dynamics_close")
-async def close_dynamics(callback: CallbackQuery, state: FSMContext):
-    """Закрывает динамику и возвращает в главное меню."""
+async def dynamics_back_to_menu(callback: CallbackQuery, state: FSMContext):
+    """Возврат в главное меню."""
     await callback.answer()
     await state.clear()
     
@@ -274,25 +309,3 @@ async def close_dynamics(callback: CallbackQuery, state: FSMContext):
         "Главное меню:",
         reply_markup=get_main_menu_keyboard(),
     )
-
-
-@router.callback_query(F.data == "dynamics_open_diary")
-async def open_diary_from_dynamics(callback: CallbackQuery, state: FSMContext):
-    """Открывает дневник из раздела динамики."""
-    await callback.answer()
-    await state.clear()
-    
-    from app.bot.handlers.diary import show_diary_menu
-    await callback.message.delete()
-    await show_diary_menu(callback.message, state)
-
-
-@router.callback_query(F.data == "dynamics_new_analysis")
-async def new_analysis_from_dynamics(callback: CallbackQuery, state: FSMContext):
-    """Открывает новый анализ из раздела динамики."""
-    await callback.answer()
-    await state.clear()
-    
-    from app.bot.handlers.symptom import start_symptom_analysis
-    await callback.message.delete()
-    await start_symptom_analysis(callback.message, state)

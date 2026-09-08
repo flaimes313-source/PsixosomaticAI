@@ -1,64 +1,37 @@
 """
-Репозиторий для работы с дневниковыми записями.
+Репозиторий для работы с дневником.
 """
-from sqlalchemy import select, desc, and_, func
+from sqlalchemy import select, desc, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, date, timedelta
-from typing import Optional, List, Tuple
+from datetime import date, datetime
+from typing import Optional, List, Dict, Any
 
 from app.db.models.diary import DiaryEntry
+from app.db.models.analysis import Analysis
+from app.db.models.clarification import Clarification
 from app.utils.logging import logger
 
 
 class DiaryRepository:
-    """Репозиторий для операций с дневниковыми записями"""
+    """Репозиторий для операций с дневником."""
 
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create_entry(
-        self,
-        user_id: int,
-        symptom: str,
-        symptom_intensity: int,
-        mood: int,
-        stress: int,
-        sleep_hours: float,
-        context: Optional[str] = None,
-        note: Optional[str] = None,
-        analysis_id: Optional[int] = None,
-        entry_date: Optional[date] = None,
-    ) -> DiaryEntry:
+    # ==================== ОСНОВНЫЕ МЕТОДЫ ====================
+
+    async def create_entry(self, **kwargs) -> DiaryEntry:
         """
-        Создает новую дневниковую запись.
+        Создаёт запись в дневнике.
         """
-        if entry_date is None:
-            entry_date = date.today()
-        
-        entry = DiaryEntry(
-            user_id=user_id,
-            analysis_id=analysis_id,
-            symptom=symptom,
-            symptom_intensity=symptom_intensity,
-            mood=mood,
-            stress=stress,
-            sleep_hours=sleep_hours,
-            context=context,
-            note=note,
-            entry_date=entry_date,
-        )
-        
+        entry = DiaryEntry(**kwargs)
         self.session.add(entry)
         await self.session.commit()
         await self.session.refresh(entry)
-        
-        logger.info(f"Diary entry created: user_id={user_id}, id={entry.id}")
         return entry
 
     async def get_entry(self, entry_id: int, user_id: int) -> Optional[DiaryEntry]:
-        """
-        Получает запись по ID, проверяя принадлежность пользователю.
-        """
+        """Получает запись по ID."""
         result = await self.session.execute(
             select(DiaryEntry).where(
                 DiaryEntry.id == entry_id,
@@ -67,187 +40,203 @@ class DiaryRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_user_entries(
-        self,
-        user_id: int,
-        limit: int = 10,
-        offset: int = 0,
-    ) -> List[DiaryEntry]:
-        """
-        Получает все записи пользователя (сортировка по дате создания).
-        """
-        result = await self.session.execute(
-            select(DiaryEntry)
-            .where(DiaryEntry.user_id == user_id)
-            .order_by(desc(DiaryEntry.created_at))
-            .limit(limit)
-            .offset(offset)
-        )
-        return result.scalars().all()
-
     async def get_entries_by_date(
         self,
         user_id: int,
         entry_date: date,
     ) -> List[DiaryEntry]:
-        """
-        Получает все записи пользователя за конкретную дату.
-        """
+        """Получает записи за конкретную дату."""
         result = await self.session.execute(
             select(DiaryEntry)
             .where(
                 DiaryEntry.user_id == user_id,
-                DiaryEntry.entry_date == entry_date
+                func.date(DiaryEntry.created_at) == entry_date
             )
-            .order_by(DiaryEntry.created_at)
-        )
-        return result.scalars().all()
-
-    async def get_entries_by_period(
-        self,
-        user_id: int,
-        start_date: date,
-        end_date: date,
-    ) -> List[DiaryEntry]:
-        """
-        Получает записи пользователя за период.
-        """
-        result = await self.session.execute(
-            select(DiaryEntry)
-            .where(
-                DiaryEntry.user_id == user_id,
-                DiaryEntry.entry_date >= start_date,
-                DiaryEntry.entry_date <= end_date
-            )
-            .order_by(desc(DiaryEntry.entry_date), DiaryEntry.created_at)
-        )
-        return result.scalars().all()
-
-    async def get_entries_by_date_range(
-        self,
-        user_id: int,
-        start_date: datetime,
-        end_date: datetime,
-    ) -> List[DiaryEntry]:
-        """
-        Получает записи пользователя за диапазон дат (по created_at).
-        """
-        result = await self.session.execute(
-            select(DiaryEntry)
-            .where(
-                DiaryEntry.user_id == user_id,
-                DiaryEntry.created_at >= start_date,
-                DiaryEntry.created_at <= end_date
-            )
-            .order_by(DiaryEntry.created_at)
-        )
-        return result.scalars().all()
-
-    async def get_entries_count_by_user(self, user_id: int) -> int:
-        """
-        Получает общее количество записей пользователя.
-        """
-        result = await self.session.execute(
-            select(func.count()).select_from(DiaryEntry).where(DiaryEntry.user_id == user_id)
-        )
-        return result.scalar() or 0
-
-    async def get_dates_with_entries(
-        self,
-        user_id: int,
-        limit: int = 10,
-        offset: int = 0,
-    ) -> List[Tuple[date, int]]:
-        """
-        Получает список дат с количеством записей для пользователя.
-        """
-        result = await self.session.execute(
-            select(
-                DiaryEntry.entry_date,
-                func.count(DiaryEntry.id).label("count")
-            )
-            .where(DiaryEntry.user_id == user_id)
-            .group_by(DiaryEntry.entry_date)
-            .order_by(desc(DiaryEntry.entry_date))
-            .limit(limit)
-            .offset(offset)
-        )
-        return [(row.entry_date, row.count) for row in result.all()]
-
-    async def get_entries_for_date_with_count(
-        self,
-        user_id: int,
-        entry_date: date,
-    ) -> Tuple[List[DiaryEntry], int]:
-        """
-        Получает записи за дату и их количество.
-        """
-        entries = await self.get_entries_by_date(user_id, entry_date)
-        return entries, len(entries)
-
-    async def update_entry(
-        self,
-        entry_id: int,
-        user_id: int,
-        **kwargs,
-    ) -> Optional[DiaryEntry]:
-        """
-        Обновляет запись.
-        """
-        entry = await self.get_entry(entry_id, user_id)
-        if not entry:
-            return None
-        
-        allowed_fields = [
-            'symptom', 'symptom_intensity', 'mood', 'stress',
-            'sleep_hours', 'context', 'note'
-        ]
-        
-        for key, value in kwargs.items():
-            if key in allowed_fields:
-                setattr(entry, key, value)
-        
-        await self.session.commit()
-        await self.session.refresh(entry)
-        
-        logger.info(f"Diary entry updated: id={entry_id}, user_id={user_id}")
-        return entry
-
-    async def delete_entry(self, entry_id: int, user_id: int) -> bool:
-        """
-        Удаляет запись.
-        """
-        entry = await self.get_entry(entry_id, user_id)
-        if not entry:
-            return False
-        
-        await self.session.delete(entry)
-        await self.session.commit()
-        
-        logger.info(f"Diary entry deleted: id={entry_id}, user_id={user_id}")
-        return True
-
-    async def get_entries_by_analysis_id(
-        self,
-        analysis_id: int,
-        user_id: int,
-    ) -> List[DiaryEntry]:
-        """
-        Получает записи, связанные с анализом.
-        """
-        result = await self.session.execute(
-            select(DiaryEntry)
-            .where(
-                DiaryEntry.analysis_id == analysis_id,
-                DiaryEntry.user_id == user_id
-            )
-            .order_by(DiaryEntry.created_at)
+            .order_by(DiaryEntry.created_at.asc())
         )
         return result.scalars().all()
 
     async def get_today_entries(self, user_id: int) -> List[DiaryEntry]:
-        """
-        Получает записи пользователя за сегодня.
-        """
+        """Получает записи за сегодня."""
         today = date.today()
         return await self.get_entries_by_date(user_id, today)
+
+    async def get_dates_with_entries(
+        self,
+        user_id: int,
+        limit: int = 15,
+    ) -> List[tuple]:
+        """Получает даты с записями."""
+        result = await self.session.execute(
+            select(
+                func.date(DiaryEntry.created_at).label("entry_date"),
+                func.count(DiaryEntry.id).label("count")
+            )
+            .where(DiaryEntry.user_id == user_id)
+            .group_by(func.date(DiaryEntry.created_at))
+            .order_by(desc(func.date(DiaryEntry.created_at)))
+            .limit(limit)
+        )
+        return [(row.entry_date, row.count) for row in result.all()]
+
+    async def get_entries_count_by_user(self, user_id: int) -> int:
+        """Получает общее количество записей пользователя."""
+        result = await self.session.execute(
+            select(func.count()).select_from(DiaryEntry).where(
+                DiaryEntry.user_id == user_id
+            )
+        )
+        return result.scalar() or 0
+
+    async def delete_entry(self, entry_id: int, user_id: int) -> bool:
+        """Удаляет запись."""
+        entry = await self.get_entry(entry_id, user_id)
+        if not entry:
+            return False
+        await self.session.delete(entry)
+        await self.session.commit()
+        return True
+
+    # ==================== НОВЫЕ МЕТОДЫ ДЛЯ СОХРАНЕНИЯ ====================
+
+    async def save_survey_morning(
+        self,
+        user_id: int,
+        answers: Dict[str, Any],
+        analysis_text: Optional[str] = None,
+        micro_action: Optional[str] = None,
+        summary: Optional[str] = None,
+        medical_warning: Optional[str] = None,
+        analysis_id: Optional[int] = None,
+    ) -> DiaryEntry:
+        """
+        Сохраняет утренний опрос в дневник.
+        """
+        return await self.create_entry(
+            user_id=user_id,
+            entry_type="survey_morning",
+            morning_q1=answers.get("q1"),
+            morning_q2=answers.get("q2"),
+            morning_q3=answers.get("q3"),
+            morning_q4=answers.get("q4"),
+            morning_q5=answers.get("q5"),
+            morning_clarification=answers.get("clarification"),
+            analysis_text=analysis_text,
+            micro_action=micro_action,
+            summary=summary,
+            medical_warning=medical_warning,
+            analysis_id=analysis_id,
+        )
+
+    async def save_survey_day(
+        self,
+        user_id: int,
+        answers: Dict[str, Any],
+        analysis_id: Optional[int] = None,
+    ) -> DiaryEntry:
+        """
+        Сохраняет дневной опрос в дневник.
+        """
+        return await self.create_entry(
+            user_id=user_id,
+            entry_type="survey_day",
+            day_q1=answers.get("q1"),
+            day_q2=answers.get("q2"),
+            day_q3=answers.get("q3"),
+            analysis_id=analysis_id,
+        )
+
+    async def save_survey_evening(
+        self,
+        user_id: int,
+        answers: Dict[str, Any],
+        analysis_text: Optional[str] = None,
+        micro_action: Optional[str] = None,
+        summary: Optional[str] = None,
+        medical_warning: Optional[str] = None,
+        analysis_id: Optional[int] = None,
+    ) -> DiaryEntry:
+        """
+        Сохраняет вечерний опрос в дневник.
+        """
+        return await self.create_entry(
+            user_id=user_id,
+            entry_type="survey_evening",
+            evening_q1=answers.get("q1"),
+            evening_q2=answers.get("q2"),
+            evening_q3=answers.get("q3"),
+            evening_q4=answers.get("q4"),
+            evening_q5=answers.get("q5"),
+            evening_clarification=answers.get("clarification"),
+            analysis_text=analysis_text,
+            micro_action=micro_action,
+            summary=summary,
+            medical_warning=medical_warning,
+            analysis_id=analysis_id,
+        )
+
+    async def save_describe_state(
+        self,
+        user_id: int,
+        description: str,
+        ai_response: str,
+        analysis_id: Optional[int] = None,
+        analysis_text: Optional[str] = None,
+        micro_action: Optional[str] = None,
+        summary: Optional[str] = None,
+    ) -> DiaryEntry:
+        """
+        Сохраняет запись через «Описать состояние» в дневник.
+        """
+        return await self.create_entry(
+            user_id=user_id,
+            entry_type="describe_state",
+            description=description,
+            ai_response=ai_response,
+            analysis_text=analysis_text,
+            micro_action=micro_action,
+            summary=summary,
+            analysis_id=analysis_id,
+        )
+
+    async def save_clarification(
+        self,
+        user_id: int,
+        question: str,
+        answer: str,
+        analysis_id: int,
+    ) -> DiaryEntry:
+        """
+        Сохраняет уточняющий вопрос и ответ в дневник.
+        """
+        return await self.create_entry(
+            user_id=user_id,
+            entry_type="clarification",
+            clarification_question=question,
+            clarification_answer=answer,
+            analysis_id=analysis_id,
+        )
+
+    async def save_analysis(
+        self,
+        user_id: int,
+        symptom: str,
+        analysis_text: str,
+        micro_action: Optional[str] = None,
+        summary: Optional[str] = None,
+        medical_warning: Optional[str] = None,
+        analysis_id: Optional[int] = None,
+    ) -> DiaryEntry:
+        """
+        Сохраняет разбор (анализ) в дневник.
+        """
+        return await self.create_entry(
+            user_id=user_id,
+            entry_type="analysis",
+            description=symptom,
+            analysis_text=analysis_text,
+            micro_action=micro_action,
+            summary=summary,
+            medical_warning=medical_warning,
+            analysis_id=analysis_id,
+        )

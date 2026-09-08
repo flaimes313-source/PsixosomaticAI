@@ -4,7 +4,7 @@
 from aiogram import Router, types, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import date, datetime, timedelta
@@ -29,7 +29,6 @@ from app.bot.keyboards import get_main_menu_keyboard
 from app.db.repositories.diary import DiaryRepository
 from app.db.models.user import User
 from app.services.access_service import AccessService
-from app.services.usage_service import UsageService
 from app.utils.logging import logger
 
 router = Router()
@@ -44,6 +43,84 @@ def get_user_timezone(user) -> ZoneInfo:
         return ZoneInfo(user_tz_str)
     except:
         return ZoneInfo("UTC")
+
+
+def format_diary_entry(entry) -> str:
+    """Форматирует запись дневника для отображения."""
+    text = f"📔 Запись #{entry.id}\n\n"
+    
+    if entry.entry_type == "survey_morning":
+        text += "🌅 <b>Утренний опрос</b>\n\n"
+        text += f"1. Как проснулся: {entry.morning_q1 or 'Не указано'}\n"
+        text += f"2. Тело: {entry.morning_q2 or 'Не указано'}\n"
+        text += f"3. Настроение: {entry.morning_q3 or 'Не указано'}\n"
+        text += f"4. Мысли: {entry.morning_q4 or 'Не указано'}\n"
+        text += f"5. Сон: {entry.morning_q5 or 'Не указано'}\n"
+        if entry.morning_clarification:
+            text += f"\n📝 Уточнение: {entry.morning_clarification}\n"
+        if entry.analysis_text:
+            text += f"\n🧠 <b>Разбор:</b>\n{entry.analysis_text}\n"
+        if entry.micro_action:
+            text += f"\n🌱 <b>Микродействие:</b>\n{entry.micro_action}\n"
+            
+    elif entry.entry_type == "survey_day":
+        text += "☀️ <b>Дневной опрос</b>\n\n"
+        text += f"1. Как сейчас: {entry.day_q1 or 'Не указано'}\n"
+        text += f"2. Изменения: {entry.day_q2 or 'Не указано'}\n"
+        text += f"3. Влияние: {entry.day_q3 or 'Не указано'}\n"
+        
+    elif entry.entry_type == "survey_evening":
+        text += "🌆 <b>Вечерний опрос</b>\n\n"
+        text += f"1. Состояние: {entry.evening_q1 or 'Не указано'}\n"
+        text += f"2. Повлияло: {entry.evening_q2 or 'Не указано'}\n"
+        text += f"3. Энергия: {entry.evening_q3 or 'Не указано'}\n"
+        text += f"4. Забрало силы: {entry.evening_q4 or 'Не указано'}\n"
+        text += f"5. Еда/сон/движение: {entry.evening_q5 or 'Не указано'}\n"
+        if entry.evening_clarification:
+            text += f"\n📝 Уточнение: {entry.evening_clarification}\n"
+        if entry.analysis_text:
+            text += f"\n🧠 <b>Разбор:</b>\n{entry.analysis_text}\n"
+        if entry.micro_action:
+            text += f"\n🌱 <b>Микродействие на завтра:</b>\n{entry.micro_action}\n"
+            
+    elif entry.entry_type == "describe_state":
+        text += "📝 <b>Описание состояния</b>\n\n"
+        if entry.description:
+            text += f"👤 <b>Ты написал:</b>\n{entry.description}\n\n"
+        if entry.ai_response:
+            text += f"🧠 <b>Я ответил:</b>\n{entry.ai_response}\n"
+        if entry.analysis_text:
+            text += f"\n🧠 <b>Разбор:</b>\n{entry.analysis_text}\n"
+        if entry.micro_action:
+            text += f"\n🌱 <b>Микродействие:</b>\n{entry.micro_action}\n"
+        
+    elif entry.entry_type == "clarification":
+        text += "💬 <b>Уточняющий вопрос</b>\n\n"
+        if entry.clarification_question:
+            text += f"❓ <b>Ты спросил:</b>\n{entry.clarification_question}\n\n"
+        if entry.clarification_answer:
+            text += f"📝 <b>Я ответил:</b>\n{entry.clarification_answer}\n"
+        
+    elif entry.entry_type == "analysis":
+        text += "🧠 <b>Разбор состояния</b>\n\n"
+        if entry.description:
+            text += f"📝 {entry.description}\n\n"
+        if entry.analysis_text:
+            text += f"{entry.analysis_text}\n"
+        if entry.micro_action:
+            text += f"\n🌱 <b>Микродействие:</b>\n{entry.micro_action}\n"
+        if entry.medical_warning:
+            text += f"\n⚠️ {entry.medical_warning}\n"
+            
+    else:
+        text += "📝 <b>Ручная запись</b>\n\n"
+        if entry.description:
+            text += f"{entry.description}\n"
+    
+    if entry.created_at:
+        text += f"\n🕐 {entry.created_at.strftime('%d.%m.%Y %H:%M')}"
+    
+    return text
 
 
 # ==================== ГЛАВНОЕ МЕНЮ ДНЕВНИКА ====================
@@ -80,15 +157,12 @@ async def start_new_diary_entry(message: types.Message, state: FSMContext, db_se
     
     telegram_id = message.from_user.id
     
-    # ==================== НОВАЯ ПРОВЕРКА ЛИМИТА ====================
     access_service = AccessService(db_session)
     can_use, limit_message = await access_service.can_add_diary_entry(telegram_id)
     
     if not can_use:
-        # Проверяем, PRO ли пользователь
         is_pro = await access_service.is_pro(telegram_id)
         if is_pro:
-            # Если PRO, то ошибка в другом месте (не должно происходить)
             logger.warning(f"PRO user {telegram_id} hit diary limit?")
         else:
             await message.answer(
@@ -97,7 +171,6 @@ async def start_new_diary_entry(message: types.Message, state: FSMContext, db_se
                 parse_mode="HTML",
             )
             return
-    # ==============================================================
     
     await state.set_state(DiaryStates.waiting_for_symptom)
     
@@ -214,7 +287,6 @@ async def process_diary_mood(message: types.Message, state: FSMContext):
     if text.startswith('/'):
         return
     
-    # Извлекаем число из текста (например "3 😐" -> 3)
     try:
         if text[0].isdigit():
             mood = int(text[0])
@@ -395,7 +467,6 @@ async def process_diary_note(message: types.Message, state: FSMContext):
             return
         await state.update_data(note=text)
     
-    # Показываем предпросмотр
     await show_preview(message, state)
 
 
@@ -453,7 +524,6 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
     telegram_id = callback.from_user.id
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -466,7 +536,6 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
             )
             return
         
-        # ==================== ПРОВЕРКА ЛИМИТА ПЕРЕД СОХРАНЕНИЕМ ====================
         access_service = AccessService(db_session)
         can_use, limit_message = await access_service.can_add_diary_entry(telegram_id)
         
@@ -477,35 +546,32 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
                 parse_mode="HTML",
             )
             return
-        # ========================================================================
         
-        # Создаем запись
         diary_repo = DiaryRepository(db_session)
         
-        entry = await diary_repo.create_entry(
+        # Сохраняем как ручную запись
+        entry = await diary_repo.save_analysis(
             user_id=user.id,
             symptom=data.get('symptom', 'Не указано'),
-            symptom_intensity=data.get('symptom_intensity', 0),
-            mood=data.get('mood', 3),
-            stress=data.get('stress', 5),
-            sleep_hours=data.get('sleep_hours', 0.0),
-            context=data.get('context'),
-            note=data.get('note'),
-            analysis_id=data.get('analysis_id'),
+            analysis_text=(
+                f"Интенсивность: {data.get('symptom_intensity', 0)}/10\n"
+                f"Настроение: {data.get('mood', 3)}/5\n"
+                f"Стресс: {data.get('stress', 5)}/10\n"
+                f"Сон: {data.get('sleep_hours', 0)} ч\n"
+                f"Контекст: {data.get('context', 'Не указан')}\n"
+                f"Заметка: {data.get('note', 'Нет')}"
+            ),
+            summary=data.get('symptom', 'Не указано'),
         )
         
-        # ==================== УВЕЛИЧИВАЕМ СЧЁТЧИК ====================
         await access_service.increment_diary_entries(telegram_id)
-        # =============================================================
         
         await state.clear()
         
-        # Получаем часовой пояс пользователя
         user_tz = get_user_timezone(user)
         created_at_local = entry.created_at.astimezone(user_tz)
         time_str = created_at_local.strftime("%H:%M")
         
-        # Получаем текущий счётчик для отображения
         remaining = 10 - user.diary_entries_count
         if remaining < 0:
             remaining = 0
@@ -513,10 +579,7 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
         await callback.message.edit_text(
             f"✅ Запись сохранена!\n\n"
             f"📅 {entry.entry_date.strftime('%d.%m.%Y')} {time_str}\n"
-            f"🩺 {entry.symptom} — {entry.symptom_intensity}/10\n"
-            f"🙂 Настроение: {entry.mood}/5\n"
-            f"😰 Стресс: {entry.stress}/10\n"
-            f"😴 Сон: {entry.sleep_hours} ч\n"
+            f"📝 {entry.description}\n"
             f"\n📊 Осталось бесплатных записей: {remaining}/10",
             reply_markup=None,
         )
@@ -527,7 +590,7 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
             reply_markup=get_diary_menu_keyboard(),
         )
         
-        logger.info(f"Diary entry saved: user_id={user.id}, id={entry.id}, count={user.diary_entries_count}")
+        logger.info(f"Diary entry saved: user_id={user.id}, id={entry.id}")
         
     except Exception as e:
         logger.error(f"Error saving diary entry: {e}")
@@ -548,10 +611,8 @@ async def edit_diary_entry(callback: CallbackQuery, state: FSMContext):
     """Возврат к редактированию."""
     await callback.answer("Возвращаемся к редактированию...")
     
-    # Удаляем сообщение с предпросмотром
     await callback.message.delete()
     
-    # Показываем первый вопрос
     await callback.message.answer(
         "✏️ Давайте исправим запись.\n\n"
         "1/7: Опишите ваш симптом или состояние.",
@@ -604,7 +665,6 @@ async def back_from_edit(message: types.Message, state: FSMContext):
     """Возврат в меню дневника из режима редактирования (FSM)."""
     current_state = await state.get_state()
     
-    # Если есть активное FSM состояние
     if current_state is not None:
         await state.clear()
         await message.answer(
@@ -614,7 +674,6 @@ async def back_from_edit(message: types.Message, state: FSMContext):
         )
         logger.info(f"User returned from edit mode: telegram_id={message.from_user.id}")
     else:
-        # Если FSM нет, просто показываем меню
         await message.answer(
             "📔 Мой дневник\n\n"
             "Выбери действие:",
@@ -630,7 +689,6 @@ async def show_today_entries(message: types.Message, db_session: AsyncSession):
     telegram_id = message.from_user.id
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -643,7 +701,6 @@ async def show_today_entries(message: types.Message, db_session: AsyncSession):
             )
             return
         
-        # Получаем записи за сегодня
         diary_repo = DiaryRepository(db_session)
         entries = await diary_repo.get_today_entries(user.id)
         
@@ -662,17 +719,10 @@ async def show_today_entries(message: types.Message, db_session: AsyncSession):
         
         for entry in entries:
             time_str = entry.created_at.astimezone(user_tz).strftime("%H:%M")
-            text += (
-                f"🕐 {time_str}\n"
-                f"🩺 {entry.symptom} — {entry.symptom_intensity}/10\n"
-                f"🙂 Настроение: {entry.mood}/5\n"
-                f"😰 Стресс: {entry.stress}/10\n"
-                f"😴 Сон: {entry.sleep_hours} ч\n"
-                f"🆔 #{entry.id}\n\n"
-            )
+            # Используем новую функцию форматирования
+            entry_text = format_diary_entry(entry)
+            text += f"🕐 {time_str}\n{entry_text[:100]}...\n\n"
         
-        # Добавляем кнопки для просмотра записей
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(
@@ -706,7 +756,6 @@ async def show_diary_history(message: types.Message, db_session: AsyncSession):
     telegram_id = message.from_user.id
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -719,7 +768,6 @@ async def show_diary_history(message: types.Message, db_session: AsyncSession):
             )
             return
         
-        # Получаем даты с записями
         diary_repo = DiaryRepository(db_session)
         dates = await diary_repo.get_dates_with_entries(user.id, limit=15)
         
@@ -738,8 +786,6 @@ async def show_diary_history(message: types.Message, db_session: AsyncSession):
         
         text += "\nНажмите на дату ниже, чтобы посмотреть записи."
         
-        # Создаем инлайн-кнопки для дат
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(
@@ -774,7 +820,6 @@ async def show_entries_for_date(callback: CallbackQuery, db_session: AsyncSessio
     entry_date = date.fromisoformat(date_str)
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
@@ -787,7 +832,6 @@ async def show_entries_for_date(callback: CallbackQuery, db_session: AsyncSessio
             )
             return
         
-        # Получаем записи за дату
         diary_repo = DiaryRepository(db_session)
         entries = await diary_repo.get_entries_by_date(user.id, entry_date)
         
@@ -803,17 +847,10 @@ async def show_entries_for_date(callback: CallbackQuery, db_session: AsyncSessio
         
         for entry in entries:
             time_str = entry.created_at.astimezone(user_tz).strftime("%H:%M")
-            text += (
-                f"🕐 {time_str}\n"
-                f"🩺 {entry.symptom} — {entry.symptom_intensity}/10\n"
-                f"🙂 Настроение: {entry.mood}/5\n"
-                f"😰 Стресс: {entry.stress}/10\n"
-                f"😴 Сон: {entry.sleep_hours} ч\n"
-                f"🆔 #{entry.id}\n\n"
-            )
+            text += f"🕐 {time_str}\n"
+            entry_text = format_diary_entry(entry)
+            text += f"{entry_text}\n\n"
         
-        # Кнопки для просмотра записей и возврата
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(
@@ -849,7 +886,6 @@ async def back_to_diary_history(callback: CallbackQuery, db_session: AsyncSessio
     telegram_id = callback.from_user.id
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -862,7 +898,6 @@ async def back_to_diary_history(callback: CallbackQuery, db_session: AsyncSessio
             )
             return
         
-        # Получаем даты с записями
         diary_repo = DiaryRepository(db_session)
         dates = await diary_repo.get_dates_with_entries(user.id, limit=15)
         
@@ -882,7 +917,6 @@ async def back_to_diary_history(callback: CallbackQuery, db_session: AsyncSessio
             text += f"{entry_date.strftime('%d.%m.%Y')} — {count} записей\n"
         text += "\nНажмите на дату ниже, чтобы посмотреть записи."
         
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(
@@ -932,7 +966,6 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
     entry_id = int(callback.data.split("_")[2])
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
@@ -945,7 +978,6 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
             )
             return
         
-        # Получаем запись
         diary_repo = DiaryRepository(db_session)
         entry = await diary_repo.get_entry(entry_id, user.id)
         
@@ -960,24 +992,14 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
         created_at_local = entry.created_at.astimezone(user_tz)
         time_str = created_at_local.strftime("%H:%M")
         
-        text = (
-            f"📔 Запись #{entry.id}\n\n"
-            f"📅 {entry.entry_date.strftime('%d.%m.%Y')} {time_str}\n\n"
-            f"🩺 Симптом: {entry.symptom}\n"
-            f"📊 Интенсивность: {entry.symptom_intensity}/10\n"
-            f"🙂 Настроение: {entry.mood}/5\n"
-            f"😰 Стресс: {entry.stress}/10\n"
-            f"😴 Сон: {entry.sleep_hours} ч\n"
-        )
-        
-        if entry.context:
-            text += f"📝 Контекст: {entry.context}\n"
-        if entry.note:
-            text += f"💬 Заметка: {entry.note}\n"
+        # Используем новую функцию форматирования
+        text = format_diary_entry(entry)
+        text += f"\n\n🕐 {created_at_local.strftime('%d.%m.%Y %H:%M')}"
         
         await callback.message.edit_text(
             text,
             reply_markup=get_entry_detail_keyboard(entry_id),
+            parse_mode="HTML",
         )
         
     except Exception as e:
@@ -998,7 +1020,6 @@ async def edit_diary_entry_by_id(callback: CallbackQuery, state: FSMContext, db_
     entry_id = int(callback.data.split("_")[3])
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
@@ -1011,7 +1032,6 @@ async def edit_diary_entry_by_id(callback: CallbackQuery, state: FSMContext, db_
             )
             return
         
-        # Получаем запись
         diary_repo = DiaryRepository(db_session)
         entry = await diary_repo.get_entry(entry_id, user.id)
         
@@ -1022,29 +1042,25 @@ async def edit_diary_entry_by_id(callback: CallbackQuery, state: FSMContext, db_
             )
             return
         
-        # Сохраняем ID записи для редактирования в FSM
         await state.update_data(edit_entry_id=entry_id)
         await state.set_state(DiaryStates.waiting_for_symptom)
         
-        # Заполняем данными из записи
         await state.update_data(
-            symptom=entry.symptom,
-            symptom_intensity=entry.symptom_intensity,
-            mood=entry.mood,
-            stress=entry.stress,
-            sleep_hours=entry.sleep_hours,
-            context=entry.context,
-            note=entry.note,
+            symptom=entry.description or entry.morning_q1 or "",
+            symptom_intensity=0,
+            mood=3,
+            stress=5,
+            sleep_hours=0,
+            context=None,
+            note=None,
         )
         
-        # Удаляем старое сообщение с inline-клавиатурой
         await callback.message.delete()
         
-        # Отправляем новое сообщение с обычной клавиатурой
         await callback.message.answer(
             f"✏️ Редактируем запись #{entry_id}\n\n"
             "1/7: Опишите симптом\n\n"
-            f"Было: {entry.symptom}\n\n"
+            f"Было: {entry.description or entry.morning_q1 or 'Не указано'}\n\n"
             "Напишите новый симптом или оставьте тот же:",
             reply_markup=get_cancel_keyboard(),
         )
@@ -1078,7 +1094,6 @@ async def cancel_delete_diary_entry(callback: CallbackQuery):
     """Отмена удаления."""
     await callback.answer("Удаление отменено")
     
-    # Возвращаемся к деталям записи
     entry_id = int(callback.message.text.split("#")[1].split()[0])
     await callback.message.edit_text(
         callback.message.text,
@@ -1094,7 +1109,6 @@ async def delete_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
     entry_id = int(callback.data.split("_")[3])
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
@@ -1107,7 +1121,6 @@ async def delete_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
             )
             return
         
-        # Удаляем запись
         diary_repo = DiaryRepository(db_session)
         success = await diary_repo.delete_entry(entry_id, user.id)
         

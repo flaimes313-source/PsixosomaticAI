@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.services.yandex_gpt import YandexGPTClient, YandexGPTError
 from app.db.repositories.analysis import AnalysisRepository
 from app.db.repositories.clarification import ClarificationRepository
+from app.db.repositories.diary import DiaryRepository
 from app.db.models.user import User
 from app.schemas.analysis import AnalysisResult
 from app.schemas.dynamics import DynamicsStatistics, DynamicsReport
@@ -410,7 +411,6 @@ class AIService:
         Получает последние N диалогов пользователя для контекста.
         """
         try:
-            # Получаем пользователя
             user_result = await db_session.execute(
                 select(User).where(User.telegram_id == telegram_id)
             )
@@ -419,14 +419,12 @@ class AIService:
             if not user:
                 return ""
             
-            # Получаем последние анализы
             analysis_repo = AnalysisRepository(db_session)
             analyses = await analysis_repo.get_user_analyses(user.id, limit=limit)
             
             if not analyses:
                 return ""
             
-            # Формируем контекст
             context_parts = []
             context_parts.append("📋 Краткая история твоих обращений:\n")
             
@@ -439,7 +437,6 @@ class AIService:
             context_parts.append("---")
             context_parts.append("")
             
-            # Получаем уточнения к последнему анализу
             if analyses:
                 last_analysis = analyses[0]
                 from app.db.repositories.clarification import ClarificationRepository
@@ -448,7 +445,7 @@ class AIService:
                 
                 if clarifications:
                     context_parts.append("📝 Последние уточнения:")
-                    for clar in clarifications[-3:]:  # последние 3 уточнения
+                    for clar in clarifications[-3:]:
                         context_parts.append(f"❓ {clar.question}")
                         context_parts.append(f"💬 {clar.answer[:100]}...")
                         context_parts.append("")
@@ -533,7 +530,6 @@ class AIService:
         logger.info(f"BODY_CLARIFICATION_STARTED: question={question[:30]}...")
 
         try:
-            # Получаем историю предыдущих вопросов
             history_text = ""
             if db_session and analysis_id:
                 try:
@@ -574,7 +570,6 @@ class AIService:
                 "error": None,
             }
             
-            # Сохраняем в БД
             if db_session and analysis_id and telegram_id:
                 try:
                     user_result = await db_session.execute(
@@ -588,8 +583,8 @@ class AIService:
                         result["save_error"] = "User not found"
                         return result
                     
+                    # Сохраняем в Clarification
                     repo = ClarificationRepository(db_session)
-                    
                     clarification = await repo.create(
                         analysis_id=analysis_id,
                         user_id=user.id,
@@ -600,7 +595,15 @@ class AIService:
                     result["saved"] = True
                     result["clarification_id"] = clarification.id
                     
-                    logger.info(f"Clarification saved: id={clarification.id}")
+                    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+                    diary_repo = DiaryRepository(db_session)
+                    await diary_repo.save_clarification(
+                        user_id=user.id,
+                        question=question,
+                        answer=response,
+                        analysis_id=analysis_id,
+                    )
+                    logger.info(f"Clarification saved to diary for user {telegram_id}")
                     
                 except Exception as e:
                     logger.error(f"Failed to save clarification: {e}")
@@ -641,7 +644,6 @@ class AIService:
         logger.info(f"HELP_DIALOG_STARTED: message={message[:30]}...")
 
         try:
-            # Формируем историю
             history_text = ""
             if history:
                 parts = []
@@ -702,9 +704,7 @@ class AIService:
         logger.info(f"DESCRIBE_STATE_STARTED: user={telegram_id}, description={description[:30]}...")
 
         try:
-            # ==================== ПОЛУЧАЕМ КОНТЕКСТ ПОЛЬЗОВАТЕЛЯ ====================
             context = await self.get_user_context(telegram_id, db_session, limit=3)
-            # =======================================================================
 
             system_prompt = self._build_describe_state_system_prompt(context)
             user_prompt = self._build_describe_state_user_prompt(description)
@@ -718,23 +718,18 @@ class AIService:
 
             logger.info("DESCRIBE_STATE_COMPLETED")
 
-            # ==================== СОХРАНЯЕМ В БД ====================
             saved = False
             analysis_id = None
             user_id = None
 
             try:
-                # Находим пользователя
                 result = await db_session.execute(
                     select(User).where(User.telegram_id == telegram_id)
                 )
                 user = result.scalar_one_or_none()
 
                 if user:
-                    # Создаём анализ как обычную запись
                     analysis_repo = AnalysisRepository(db_session)
-
-                    # Сохраняем ответ как есть (без JSON-парсинга)
                     analysis = await analysis_repo.create(
                         user_id=user.id,
                         symptom=description[:200],
@@ -748,6 +743,19 @@ class AIService:
                     analysis_id = analysis.id
                     user_id = user.id
                     logger.info(f"Describe state saved to DB: id={analysis.id}, user_id={user.id}")
+                    
+                    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+                    diary_repo = DiaryRepository(db_session)
+                    await diary_repo.save_describe_state(
+                        user_id=user.id,
+                        description=description,
+                        ai_response=response,
+                        analysis_id=analysis_id,
+                        analysis_text=response,
+                        summary=description[:100],
+                    )
+                    logger.info(f"Describe state saved to diary for user {telegram_id}")
+                    
                 else:
                     logger.error(f"User not found for telegram_id: {telegram_id}")
 
@@ -1001,7 +1009,18 @@ class AIService:
             result["analysis_id"] = analysis.id
             result["user_id"] = user.id
             
-            logger.info(f"Analysis saved to DB: id={analysis.id}, user_id={user.id}")
+            # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+            diary_repo = DiaryRepository(db_session)
+            await diary_repo.save_analysis(
+                user_id=user.id,
+                symptom=symptom,
+                analysis_text=analysis_text,
+                micro_action=analysis_obj.micro_action,
+                summary=analysis_obj.summary,
+                medical_warning=analysis_obj.medical_warning,
+                analysis_id=analysis.id,
+            )
+            logger.info(f"Analysis saved to diary for user {telegram_id}")
             
         except Exception as e:
             logger.error(f"Failed to save analysis to DB: {e}")

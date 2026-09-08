@@ -22,6 +22,7 @@ from app.services.ai_service import ai_service
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
 from app.db.repositories.analysis import AnalysisRepository
+from app.db.repositories.diary import DiaryRepository
 from app.utils.logging import logger
 
 router = Router()
@@ -150,7 +151,6 @@ async def process_evening_q5(message: types.Message, state: FSMContext, db_sessi
     
     await state.update_data(q5=answer)
     
-    # Собираем все ответы
     data = await state.get_data()
     survey_data = {
         "q1": data.get("q1"),
@@ -163,7 +163,6 @@ async def process_evening_q5(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(survey_data=survey_data)
     await state.set_state(EveningSurveyStates.waiting_for_clarification)
     
-    # Уточняющий вопрос
     await message.answer(
         "📝 <b>Давай уточним</b>\n\n"
         "Что повторялось в твоём состоянии сегодня?\n"
@@ -186,12 +185,11 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
     await state.update_data(clarification=answer)
     await state.set_state(EveningSurveyStates.waiting_for_reminder)
     
-    # Формируем текст для AI-анализа
     data = await state.get_data()
     survey_data = data.get("survey_data", {})
     clarification = data.get("clarification", "Не указано")
+    telegram_id = message.from_user.id
     
-    # Формируем текст для AI
     symptom_text = (
         f"Вечернее состояние:\n"
         f"1. Чувствую: {survey_data.get('q1', 'Не указано')}\n"
@@ -208,9 +206,8 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
     )
     
     try:
-        # Используем существующий метод анализа
         result = await ai_service.analyze_and_save(
-            telegram_id=message.from_user.id,
+            telegram_id=telegram_id,
             symptom=symptom_text[:200],
             duration="Вечер",
             intensity=5,
@@ -222,18 +219,35 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
         
         if result["success"]:
             analysis = result["analysis"]
+            analysis_id = result.get("analysis_id")
             
-            # Увеличиваем счётчик
             from app.services.access_service import AccessService
             access_service = AccessService(db_session)
-            await access_service.increment_body_analysis(message.from_user.id)
+            await access_service.increment_body_analysis(telegram_id)
             
-            # Форматируем ответ
+            # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+            user_result = await db_session.execute(
+                select(User).where(User.telegram_id == telegram_id)
+            )
+            user = user_result.scalar_one_or_none()
+            
+            if user:
+                diary_repo = DiaryRepository(db_session)
+                await diary_repo.save_survey_evening(
+                    user_id=user.id,
+                    answers=survey_data,
+                    analysis_text=analysis.summary if hasattr(analysis, 'summary') else str(analysis),
+                    micro_action=analysis.micro_action if hasattr(analysis, 'micro_action') else None,
+                    summary=analysis.summary if hasattr(analysis, 'summary') else None,
+                    medical_warning=analysis.medical_warning if hasattr(analysis, 'medical_warning') else None,
+                    analysis_id=analysis_id,
+                )
+                logger.info(f"Evening survey saved to diary for user {telegram_id}")
+            # ==============================================================
+            
             result_text = format_evening_survey_analysis(analysis, survey_data)
             
-            # Микродействие на завтра
             micro_action = analysis.micro_action or "Попробуй завтра утром сделать 5-минутную зарядку."
-            
             result_text += f"\n\n🌱 <b>Микродействие на завтра:</b>\n{micro_action}\n\n"
             
             await state.clear()
@@ -244,7 +258,7 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
                 parse_mode="HTML",
             )
             
-            logger.info(f"Evening survey completed: user={message.from_user.id}")
+            logger.info(f"Evening survey completed: user={telegram_id}")
             
         else:
             await message.answer(
@@ -308,7 +322,6 @@ def format_evening_survey_analysis(analysis, survey_data: dict) -> str:
     """
     text = f"🌆 <b>Итоги дня</b>\n\n"
     
-    # Краткая сводка
     text += f"📊 <b>Краткая сводка</b>\n"
     text += f"• Состояние: {survey_data.get('q1', 'Не указано')}\n"
     text += f"• Повлияло: {survey_data.get('q2', 'Не указано')}\n"
@@ -316,28 +329,23 @@ def format_evening_survey_analysis(analysis, survey_data: dict) -> str:
     text += f"• Забрало силы: {survey_data.get('q4', 'Не указано')}\n"
     text += f"• Еда/сон/движение: {survey_data.get('q5', 'Не указано')}\n\n"
     
-    # Основной анализ
     text += f"{analysis.summary}\n\n"
     
-    # Факторы
     if analysis.possible_factors:
         text += "📌 <b>Возможные факторы:</b>\n"
         for factor in analysis.possible_factors:
             text += f"• {factor}\n"
         text += "\n"
     
-    # Паттерны
     if analysis.possible_patterns:
         text += "🔄 <b>Возможные паттерны:</b>\n"
         for pattern in analysis.possible_patterns:
             text += f"• {pattern}\n"
         text += "\n"
     
-    # Раздел "Тело говорит подсознанию"
     text += "🧠 <b>Тело говорит подсознанию</b> (по Синельникову)\n"
     text += "Тело может отражать внутренние конфликты, невыраженные эмоции и бессознательные установки.\n"
     
-    # Генерируем интерпретацию на основе ответов
     energy_source = survey_data.get('q3', '')
     if 'общение' in energy_source.lower():
         text += "• Общение может быть источником энергии, если оно приносит радость и поддержку.\n"
@@ -345,17 +353,14 @@ def format_evening_survey_analysis(analysis, survey_data: dict) -> str:
         text += "• Еда — не только топливо, но и эмоциональный ресурс. Обрати внимание на качество питания.\n"
     text += "Важно: это возможная интерпретация для самонаблюдения, а не диагноз.\n\n"
     
-    # Раздел "Современный подход"
     text += "🔬 <b>Современный подход</b>\n"
     text += "Современные исследования показывают, что вечернее состояние связано с накопленным стрессом "
     text += "и качеством восстановления. Регулярное наблюдение помогает снижать тревогу "
     text += "и повышать осознанность.\n"
     
-    # Вопрос для самопроверки
     if analysis.check_question:
         text += f"\n❓ <b>Вопрос для самопроверки:</b>\n{analysis.check_question}\n"
     
-    # Медицинское предупреждение
     if analysis.medical_warning:
         text += f"\n⚠️ {analysis.medical_warning}\n"
     
