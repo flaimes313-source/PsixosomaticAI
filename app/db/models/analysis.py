@@ -64,14 +64,12 @@ class Analysis(Base):
         order_by="Clarification.created_at",
     )
     
-    # ==================== ИСПРАВЛЕНО: diary_entry (было diary_entries) ====================
     diary_entry: Mapped[List["DiaryEntry"]] = relationship(
         "DiaryEntry",
         back_populates="analysis",
         cascade="all, delete-orphan",
         order_by="DiaryEntry.created_at",
     )
-    # ====================================================================================
 
     def __repr__(self) -> str:
         return f"<Analysis(id={self.id}, user_id={self.user_id}, symptom={self.symptom[:30]})>"

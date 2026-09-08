@@ -97,7 +97,7 @@ class DiaryRepository:
         await self.session.commit()
         return True
 
-    # ==================== НОВЫЕ МЕТОДЫ ДЛЯ СОХРАНЕНИЯ ====================
+    # ==================== МЕТОДЫ ДЛЯ СОХРАНЕНИЯ ====================
 
     async def save_survey_morning(
         self,
@@ -112,9 +112,12 @@ class DiaryRepository:
         """
         Сохраняет утренний опрос в дневник.
         """
+        # Формируем symptom из ответов для обязательного поля
+        symptom_text = f"Утренний опрос: {answers.get('q1', '')} {answers.get('q2', '')}"
         return await self.create_entry(
             user_id=user_id,
             entry_type="survey_morning",
+            symptom=symptom_text[:200],  # ← Добавлено
             morning_q1=answers.get("q1"),
             morning_q2=answers.get("q2"),
             morning_q3=answers.get("q3"),
@@ -137,9 +140,11 @@ class DiaryRepository:
         """
         Сохраняет дневной опрос в дневник.
         """
+        symptom_text = f"Дневной опрос: {answers.get('q1', '')}"
         return await self.create_entry(
             user_id=user_id,
             entry_type="survey_day",
+            symptom=symptom_text[:200],  # ← Добавлено
             day_q1=answers.get("q1"),
             day_q2=answers.get("q2"),
             day_q3=answers.get("q3"),
@@ -159,9 +164,11 @@ class DiaryRepository:
         """
         Сохраняет вечерний опрос в дневник.
         """
+        symptom_text = f"Вечерний опрос: {answers.get('q1', '')}"
         return await self.create_entry(
             user_id=user_id,
             entry_type="survey_evening",
+            symptom=symptom_text[:200],  # ← Добавлено
             evening_q1=answers.get("q1"),
             evening_q2=answers.get("q2"),
             evening_q3=answers.get("q3"),
@@ -191,11 +198,12 @@ class DiaryRepository:
         return await self.create_entry(
             user_id=user_id,
             entry_type="describe_state",
+            symptom=description[:200],  # ← Добавлено
             description=description,
             ai_response=ai_response,
-            analysis_text=analysis_text,
+            analysis_text=analysis_text or ai_response,
             micro_action=micro_action,
-            summary=summary,
+            summary=summary or description[:100],
             analysis_id=analysis_id,
         )
 
@@ -212,6 +220,7 @@ class DiaryRepository:
         return await self.create_entry(
             user_id=user_id,
             entry_type="clarification",
+            symptom=question[:200],  # ← Добавлено
             clarification_question=question,
             clarification_answer=answer,
             analysis_id=analysis_id,
@@ -233,6 +242,7 @@ class DiaryRepository:
         return await self.create_entry(
             user_id=user_id,
             entry_type="analysis",
+            symptom=symptom[:200],  # ← Добавлено
             description=symptom,
             analysis_text=analysis_text,
             micro_action=micro_action,

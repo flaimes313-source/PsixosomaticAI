@@ -34,7 +34,8 @@ class DiaryEntry(Base):
         index=True,
     )
     
-    # Основные поля
+    # ==================== ОСНОВНЫЕ ПОЛЯ ====================
+    symptom: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # ← СДЕЛАЛИ NULLABLE
     entry_date: Mapped[date] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -103,13 +104,11 @@ class DiaryEntry(Base):
         "User",
         back_populates="diary_entries",
     )
-    # ==================== ИСПРАВЛЕНО ====================
     analysis: Mapped[Optional["Analysis"]] = relationship(
         "Analysis",
         foreign_keys=[analysis_id],
-        back_populates="diary_entry",  # ← ИЗМЕНЕНО ИМЯ
+        back_populates="diary_entry",
     )
-    # ==============================================
 
     def __repr__(self) -> str:
         return f"<DiaryEntry(id={self.id}, user_id={self.user_id}, date={self.entry_date})>"
