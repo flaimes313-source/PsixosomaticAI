@@ -110,6 +110,28 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
+            # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+            try:
+                user_result = await db_session.execute(
+                    select(User).where(User.telegram_id == telegram_id)
+                )
+                user = user_result.scalar_one_or_none()
+                
+                if user and analysis_id:
+                    diary_repo = DiaryRepository(db_session)
+                    await diary_repo.save_describe_state(
+                        user_id=user.id,
+                        description=description,
+                        ai_response=answer,
+                        analysis_id=analysis_id,
+                        analysis_text=answer,
+                        summary=description[:100],
+                    )
+                    logger.info(f"Describe state saved to diary for user {telegram_id}")
+            except Exception as e:
+                logger.error(f"Failed to save describe state to diary: {e}")
+            # ===============================================================
+            
             dialog_text = f"📝 <b>Ты написал:</b>\n{description}\n\n"
             dialog_text += f"🧠 <b>Я думаю:</b>\n{answer}\n\n"
             
@@ -132,7 +154,6 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             )
             await state.set_state(DescribeStateStates.waiting_for_continue)
             
-            # ==================== ИСПРАВЛЕНО: редактирование сообщения ====================
             try:
                 await message.edit_text(
                     text=dialog_text,
@@ -146,7 +167,6 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
                     reply_markup=get_continue_dialog_keyboard(),
                     parse_mode="HTML",
                 )
-            # ========================================================================
             
             try:
                 await message.delete()
@@ -310,7 +330,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
             dialog_text=new_dialog_text,
         )
         
-        # ==================== ИСПРАВЛЕНО: редактирование сообщения ====================
         try:
             await message.edit_text(
                 text=new_dialog_text,
@@ -324,7 +343,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
                 reply_markup=get_continue_dialog_keyboard(),
                 parse_mode="HTML",
             )
-        # ========================================================================
         
         try:
             await message.delete()
@@ -362,7 +380,6 @@ async def describe_finish(callback: CallbackQuery, state: FSMContext):
     
     final_text = dialog_text + "\n\n✅ <b>Диалог завершён</b>\nСпасибо, что поделились! 🙏"
     
-    # ==================== ИСПРАВЛЕНО: редактирование через callback ====================
     try:
         await callback.message.edit_text(
             text=final_text,
@@ -375,7 +392,6 @@ async def describe_finish(callback: CallbackQuery, state: FSMContext):
             reply_markup=None,
             parse_mode="HTML",
         )
-    # ==============================================================================
     
     await state.clear()
     
