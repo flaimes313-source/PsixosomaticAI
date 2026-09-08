@@ -42,8 +42,8 @@ from .diary import (
 )
 from .dynamics import (
     get_dynamics_period_keyboard,
-    get_dynamics_actions_keyboard,
     get_dynamics_cancel_keyboard,
+    get_dynamics_actions_keyboard,  # ← ТЕПЕРЬ ЕСТЬ
 )
 from .reminders import (
     get_reminders_menu_keyboard,

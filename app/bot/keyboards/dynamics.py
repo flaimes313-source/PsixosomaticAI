@@ -33,3 +33,19 @@ def get_dynamics_cancel_keyboard() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.add(KeyboardButton(text="❌ Отмена"))
     return builder.as_markup(resize_keyboard=True, one_time_keyboard=False)
+
+
+def get_dynamics_actions_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для действий после отчёта динамики."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="📊 Другой период",
+                callback_data="dynamics_new_period"
+            )],
+            [InlineKeyboardButton(
+                text="🔙 В меню",
+                callback_data="dynamics_back_to_menu"
+            )]
+        ]
+    )
