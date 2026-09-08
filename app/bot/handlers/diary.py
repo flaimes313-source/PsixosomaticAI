@@ -2,7 +2,6 @@
 Обработчик для сценария "Дневник".
 """
 from aiogram import Router, types, F
-from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +47,17 @@ def get_user_timezone(user) -> ZoneInfo:
 def format_diary_entry(entry) -> str:
     """Форматирует запись дневника для отображения."""
     text = f"📔 Запись #{entry.id}\n\n"
+    
+    # Если запись без типа — считаем ручной
+    if not entry.entry_type or entry.entry_type == "manual":
+        if entry.description:
+            text += f"📝 {entry.description}\n"
+        elif entry.symptom:
+            text += f"📝 {entry.symptom}\n"
+        if entry.analysis_text:
+            text += f"\n{entry.analysis_text}\n"
+        text += f"\n🕐 {entry.created_at.strftime('%d.%m.%Y %H:%M')}"
+        return text
     
     if entry.entry_type == "survey_morning":
         text += "🌅 <b>Утренний опрос</b>\n\n"
@@ -111,19 +121,10 @@ def format_diary_entry(entry) -> str:
             text += f"\n🌱 <b>Микродействие:</b>\n{entry.micro_action}\n"
         if entry.medical_warning:
             text += f"\n⚠️ {entry.medical_warning}\n"
-            
-    else:
-        text += "📝 <b>Ручная запись</b>\n\n"
-        if entry.description:
-            text += f"{entry.description}\n"
     
-    if entry.created_at:
-        text += f"\n🕐 {entry.created_at.strftime('%d.%m.%Y %H:%M')}"
-    
+    text += f"\n🕐 {entry.created_at.strftime('%d.%m.%Y %H:%M')}"
     return text
 
-
-# ==================== ГЛАВНОЕ МЕНЮ ДНЕВНИКА ====================
 
 @router.message(F.text == "📔 Дневник")
 async def show_diary_menu(message: types.Message, state: FSMContext):
@@ -135,20 +136,18 @@ async def show_diary_menu(message: types.Message, state: FSMContext):
         "Выбери действие:",
         reply_markup=get_diary_menu_keyboard(),
     )
-    logger.info(f"User opened diary menu: telegram_id={message.from_user.id}")
+    logger.info(f"User opened diary menu: {message.from_user.id}")
 
 
 @router.message(F.text == "🔙 Назад")
 async def back_to_main_menu_from_diary(message: types.Message, state: FSMContext):
-    """Возврат в главное меню из дневника (без FSM)."""
+    """Возврат в главное меню из дневника."""
     await state.clear()
     await message.answer(
         "Главное меню:",
         reply_markup=get_main_menu_keyboard(),
     )
 
-
-# ==================== НОВАЯ ЗАПИСЬ ====================
 
 @router.message(F.text == "➕ Новая запись")
 async def start_new_diary_entry(message: types.Message, state: FSMContext, db_session: AsyncSession):
@@ -161,16 +160,12 @@ async def start_new_diary_entry(message: types.Message, state: FSMContext, db_se
     can_use, limit_message = await access_service.can_add_diary_entry(telegram_id)
     
     if not can_use:
-        is_pro = await access_service.is_pro(telegram_id)
-        if is_pro:
-            logger.warning(f"PRO user {telegram_id} hit diary limit?")
-        else:
-            await message.answer(
-                limit_message,
-                reply_markup=get_pro_locked_keyboard(),
-                parse_mode="HTML",
-            )
-            return
+        await message.answer(
+            limit_message,
+            reply_markup=get_pro_locked_keyboard(),
+            parse_mode="HTML",
+        )
+        return
     
     await state.set_state(DiaryStates.waiting_for_symptom)
     
@@ -180,7 +175,7 @@ async def start_new_diary_entry(message: types.Message, state: FSMContext, db_se
         "Например: головная боль, усталость, тревога...",
         reply_markup=get_cancel_keyboard(),
     )
-    logger.info(f"User started new diary entry: telegram_id={message.from_user.id}")
+    logger.info(f"User started new diary entry: {message.from_user.id}")
 
 
 # ==================== ШАГ 1: СИМПТОМ ====================
@@ -223,17 +218,6 @@ async def process_diary_symptom(message: types.Message, state: FSMContext):
     )
 
 
-@router.message(DiaryStates.waiting_for_symptom)
-async def process_diary_symptom_invalid(message: types.Message, state: FSMContext):
-    """Невалидный ввод симптома."""
-    await message.answer(
-        "Пожалуйста, опишите ваш симптом текстом.",
-        reply_markup=get_cancel_keyboard(),
-    )
-
-
-# ==================== ШАГ 2: ИНТЕНСИВНОСТЬ ====================
-
 @router.message(DiaryStates.waiting_for_intensity, F.text)
 async def process_diary_intensity(message: types.Message, state: FSMContext):
     """Обработка интенсивности."""
@@ -267,17 +251,6 @@ async def process_diary_intensity(message: types.Message, state: FSMContext):
         reply_markup=get_mood_keyboard(),
     )
 
-
-@router.message(DiaryStates.waiting_for_intensity)
-async def process_diary_intensity_invalid(message: types.Message, state: FSMContext):
-    """Невалидный ввод интенсивности."""
-    await message.answer(
-        "Пожалуйста, введите число от 0 до 10.",
-        reply_markup=get_intensity_keyboard(),
-    )
-
-
-# ==================== ШАГ 3: НАСТРОЕНИЕ ====================
 
 @router.message(DiaryStates.waiting_for_mood, F.text)
 async def process_diary_mood(message: types.Message, state: FSMContext):
@@ -314,17 +287,6 @@ async def process_diary_mood(message: types.Message, state: FSMContext):
     )
 
 
-@router.message(DiaryStates.waiting_for_mood)
-async def process_diary_mood_invalid(message: types.Message, state: FSMContext):
-    """Невалидный ввод настроения."""
-    await message.answer(
-        "Пожалуйста, выберите число от 1 до 5.",
-        reply_markup=get_mood_keyboard(),
-    )
-
-
-# ==================== ШАГ 4: СТРЕСС ====================
-
 @router.message(DiaryStates.waiting_for_stress, F.text)
 async def process_diary_stress(message: types.Message, state: FSMContext):
     """Обработка уровня стресса."""
@@ -353,17 +315,6 @@ async def process_diary_stress(message: types.Message, state: FSMContext):
         reply_markup=get_sleep_keyboard(),
     )
 
-
-@router.message(DiaryStates.waiting_for_stress)
-async def process_diary_stress_invalid(message: types.Message, state: FSMContext):
-    """Невалидный ввод стресса."""
-    await message.answer(
-        "Пожалуйста, введите число от 0 до 10.",
-        reply_markup=get_stress_keyboard(),
-    )
-
-
-# ==================== ШАГ 5: СОН ====================
 
 @router.message(DiaryStates.waiting_for_sleep, F.text)
 async def process_diary_sleep(message: types.Message, state: FSMContext):
@@ -396,18 +347,6 @@ async def process_diary_sleep(message: types.Message, state: FSMContext):
     )
 
 
-@router.message(DiaryStates.waiting_for_sleep)
-async def process_diary_sleep_invalid(message: types.Message, state: FSMContext):
-    """Невалидный ввод сна."""
-    await message.answer(
-        "Пожалуйста, введите число от 0 до 24.\n"
-        "Например: 7, 7.5, 8",
-        reply_markup=get_sleep_keyboard(),
-    )
-
-
-# ==================== ШАГ 6: КОНТЕКСТ ====================
-
 @router.message(DiaryStates.waiting_for_context, F.text)
 async def process_diary_context(message: types.Message, state: FSMContext):
     """Обработка контекста."""
@@ -436,17 +375,6 @@ async def process_diary_context(message: types.Message, state: FSMContext):
         reply_markup=get_skip_keyboard(),
     )
 
-
-@router.message(DiaryStates.waiting_for_context)
-async def process_diary_context_invalid(message: types.Message, state: FSMContext):
-    """Невалидный ввод контекста."""
-    await message.answer(
-        "Пожалуйста, опишите контекст текстом или нажмите 'Пропустить'.",
-        reply_markup=get_skip_keyboard(),
-    )
-
-
-# ==================== ШАГ 7: ЗАМЕТКА ====================
 
 @router.message(DiaryStates.waiting_for_note, F.text)
 async def process_diary_note(message: types.Message, state: FSMContext):
@@ -479,8 +407,6 @@ async def process_diary_note_invalid(message: types.Message, state: FSMContext):
     )
 
 
-# ==================== ПРЕДПРОСМОТР ====================
-
 async def show_preview(message: types.Message, state: FSMContext):
     """Показывает предпросмотр записи."""
     data = await state.get_data()
@@ -512,8 +438,6 @@ async def show_preview(message: types.Message, state: FSMContext):
         reply_markup=get_confirm_keyboard(),
     )
 
-
-# ==================== СОХРАНЕНИЕ ====================
 
 @router.callback_query(F.data == "diary_save")
 async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -549,19 +473,28 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
         
         diary_repo = DiaryRepository(db_session)
         
-        # Сохраняем как ручную запись
+        symptom = data.get('symptom', 'Не указано')
+        intensity = data.get('symptom_intensity', 0)
+        mood = data.get('mood', 3)
+        stress = data.get('stress', 5)
+        sleep_hours = data.get('sleep_hours', 0)
+        context = data.get('context', 'Не указан')
+        note = data.get('note', 'Нет')
+        
+        analysis_text = (
+            f"Интенсивность: {intensity}/10\n"
+            f"Настроение: {mood}/5\n"
+            f"Стресс: {stress}/10\n"
+            f"Сон: {sleep_hours} ч\n"
+            f"Контекст: {context}\n"
+            f"Заметка: {note}"
+        )
+        
         entry = await diary_repo.save_analysis(
             user_id=user.id,
-            symptom=data.get('symptom', 'Не указано'),
-            analysis_text=(
-                f"Интенсивность: {data.get('symptom_intensity', 0)}/10\n"
-                f"Настроение: {data.get('mood', 3)}/5\n"
-                f"Стресс: {data.get('stress', 5)}/10\n"
-                f"Сон: {data.get('sleep_hours', 0)} ч\n"
-                f"Контекст: {data.get('context', 'Не указан')}\n"
-                f"Заметка: {data.get('note', 'Нет')}"
-            ),
-            summary=data.get('symptom', 'Не указано'),
+            symptom=symptom,
+            analysis_text=analysis_text,
+            summary=symptom,
         )
         
         await access_service.increment_diary_entries(telegram_id)
@@ -579,7 +512,7 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
         await callback.message.edit_text(
             f"✅ Запись сохранена!\n\n"
             f"📅 {entry.entry_date.strftime('%d.%m.%Y')} {time_str}\n"
-            f"📝 {entry.description}\n"
+            f"📝 {symptom}\n"
             f"\n📊 Осталось бесплатных записей: {remaining}/10",
             reply_markup=None,
         )
@@ -603,8 +536,6 @@ async def save_diary_entry(callback: CallbackQuery, state: FSMContext, db_sessio
             reply_markup=get_diary_menu_keyboard(),
         )
 
-
-# ==================== КНОПКА "ИЗМЕНИТЬ" НА ПРЕДПРОСМОТРЕ ====================
 
 @router.callback_query(F.data == "diary_edit")
 async def edit_diary_entry(callback: CallbackQuery, state: FSMContext):
@@ -637,8 +568,6 @@ async def cancel_diary_entry(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== ОТМЕНА FSM ====================
-
 @router.message(F.text == "❌ Отмена")
 async def cancel_diary_fsm(message: types.Message, state: FSMContext):
     """Отмена FSM через текстовую кнопку."""
@@ -657,31 +586,6 @@ async def cancel_diary_fsm(message: types.Message, state: FSMContext):
         reply_markup=get_diary_menu_keyboard(),
     )
 
-
-# ==================== ВОЗВРАТ НАЗАД ИЗ РЕДАКТИРОВАНИЯ ====================
-
-@router.message(F.text == "🔙 Назад")
-async def back_from_edit(message: types.Message, state: FSMContext):
-    """Возврат в меню дневника из режима редактирования (FSM)."""
-    current_state = await state.get_state()
-    
-    if current_state is not None:
-        await state.clear()
-        await message.answer(
-            "📔 Мой дневник\n\n"
-            "Выбери действие:",
-            reply_markup=get_diary_menu_keyboard(),
-        )
-        logger.info(f"User returned from edit mode: telegram_id={message.from_user.id}")
-    else:
-        await message.answer(
-            "📔 Мой дневник\n\n"
-            "Выбери действие:",
-            reply_markup=get_diary_menu_keyboard(),
-        )
-
-
-# ==================== ПРОСМОТР СЕГОДНЯШНИХ ЗАПИСЕЙ ====================
 
 @router.message(F.text == "📅 Сегодня")
 async def show_today_entries(message: types.Message, db_session: AsyncSession):
@@ -719,9 +623,8 @@ async def show_today_entries(message: types.Message, db_session: AsyncSession):
         
         for entry in entries:
             time_str = entry.created_at.astimezone(user_tz).strftime("%H:%M")
-            # Используем новую функцию форматирования
             entry_text = format_diary_entry(entry)
-            text += f"🕐 {time_str}\n{entry_text[:100]}...\n\n"
+            text += f"🕐 {time_str}\n{entry_text}\n\n"
         
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -738,7 +641,7 @@ async def show_today_entries(message: types.Message, db_session: AsyncSession):
             ]
         )
         
-        await message.answer(text, reply_markup=keyboard)
+        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
         
     except Exception as e:
         logger.error(f"Error showing today entries: {e}")
@@ -747,8 +650,6 @@ async def show_today_entries(message: types.Message, db_session: AsyncSession):
             reply_markup=get_diary_menu_keyboard(),
         )
 
-
-# ==================== ИСТОРИЯ ДНЕВНИКА ====================
 
 @router.message(F.text == "📖 История")
 async def show_diary_history(message: types.Message, db_session: AsyncSession):
@@ -780,10 +681,8 @@ async def show_diary_history(message: types.Message, db_session: AsyncSession):
             return
         
         text = "📖 История дневника\n\n"
-        
         for entry_date, count in dates:
             text += f"{entry_date.strftime('%d.%m.%Y')} — {count} записей\n"
-        
         text += "\nНажмите на дату ниже, чтобы посмотреть записи."
         
         keyboard = InlineKeyboardMarkup(
@@ -866,7 +765,7 @@ async def show_entries_for_date(callback: CallbackQuery, db_session: AsyncSessio
             ]
         )
         
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         
     except Exception as e:
         logger.error(f"Error showing entries for date: {e}")
@@ -875,8 +774,6 @@ async def show_entries_for_date(callback: CallbackQuery, db_session: AsyncSessio
             reply_markup=None,
         )
 
-
-# ==================== ВОЗВРАТ К ИСТОРИИ ====================
 
 @router.callback_query(F.data == "diary_back_to_history")
 async def back_to_diary_history(callback: CallbackQuery, db_session: AsyncSession):
@@ -956,8 +853,6 @@ async def back_to_diary_menu(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== ПРОСМОТР КОНКРЕТНОЙ ЗАПИСИ ====================
-
 @router.callback_query(F.data.startswith("diary_view_"))
 async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
     """Показывает детали конкретной записи."""
@@ -992,9 +887,7 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
         created_at_local = entry.created_at.astimezone(user_tz)
         time_str = created_at_local.strftime("%H:%M")
         
-        # Используем новую функцию форматирования
         text = format_diary_entry(entry)
-        text += f"\n\n🕐 {created_at_local.strftime('%d.%m.%Y %H:%M')}"
         
         await callback.message.edit_text(
             text,
@@ -1009,8 +902,6 @@ async def view_diary_entry(callback: CallbackQuery, db_session: AsyncSession):
             reply_markup=None,
         )
 
-
-# ==================== РЕДАКТИРОВАНИЕ ЗАПИСИ (ПОСЛЕ СОХРАНЕНИЯ) ====================
 
 @router.callback_query(F.data.startswith("diary_edit_entry_"))
 async def edit_diary_entry_by_id(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -1046,11 +937,11 @@ async def edit_diary_entry_by_id(callback: CallbackQuery, state: FSMContext, db_
         await state.set_state(DiaryStates.waiting_for_symptom)
         
         await state.update_data(
-            symptom=entry.description or entry.morning_q1 or "",
-            symptom_intensity=0,
+            symptom=entry.description or entry.symptom or "",
+            symptom_intensity=5,
             mood=3,
             stress=5,
-            sleep_hours=0,
+            sleep_hours=7,
             context=None,
             note=None,
         )
@@ -1060,7 +951,7 @@ async def edit_diary_entry_by_id(callback: CallbackQuery, state: FSMContext, db_
         await callback.message.answer(
             f"✏️ Редактируем запись #{entry_id}\n\n"
             "1/7: Опишите симптом\n\n"
-            f"Было: {entry.description or entry.morning_q1 or 'Не указано'}\n\n"
+            f"Было: {entry.description or entry.symptom or 'Не указано'}\n\n"
             "Напишите новый симптом или оставьте тот же:",
             reply_markup=get_cancel_keyboard(),
         )
@@ -1072,8 +963,6 @@ async def edit_diary_entry_by_id(callback: CallbackQuery, state: FSMContext, db_
             reply_markup=get_cancel_keyboard(),
         )
 
-
-# ==================== УДАЛЕНИЕ ====================
 
 @router.callback_query(F.data.startswith("diary_delete_entry_"))
 async def confirm_delete_diary_entry(callback: CallbackQuery):

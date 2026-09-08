@@ -1,5 +1,5 @@
 """
-Клавиатуры для сценария "Дневник".
+Клавиатуры для дневника.
 """
 from aiogram.types import (
     ReplyKeyboardMarkup,
@@ -7,10 +7,8 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
-from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-
-# ==================== МЕНЮ ДНЕВНИКА ====================
 
 def get_diary_menu_keyboard() -> ReplyKeyboardMarkup:
     """Клавиатура главного меню дневника."""
@@ -21,24 +19,21 @@ def get_diary_menu_keyboard() -> ReplyKeyboardMarkup:
         KeyboardButton(text="📖 История"),
         KeyboardButton(text="🔙 Назад"),
     )
-    builder.adjust(2, 2)
+    builder.adjust(2, 1, 1)
     return builder.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
-# ==================== КЛАВИАТУРЫ ДЛЯ ПОЛЕЙ ====================
-
 def get_intensity_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура для выбора интенсивности (0-10)."""
+    """Клавиатура для выбора интенсивности."""
     builder = ReplyKeyboardBuilder()
-    buttons = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
-    for btn in buttons:
-        builder.add(KeyboardButton(text=btn))
+    for i in range(11):
+        builder.add(KeyboardButton(text=str(i)))
     builder.adjust(4, 4, 3)
-    return builder.as_markup(resize_keyboard=True, one_time_keyboard=True)
+    return builder.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
 def get_mood_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура для выбора настроения (1-5)."""
+    """Клавиатура для выбора настроения."""
     builder = ReplyKeyboardBuilder()
     builder.add(
         KeyboardButton(text="1 😞"),
@@ -47,22 +42,21 @@ def get_mood_keyboard() -> ReplyKeyboardMarkup:
         KeyboardButton(text="4 🙂"),
         KeyboardButton(text="5 😄"),
     )
-    builder.adjust(5)
-    return builder.as_markup(resize_keyboard=True, one_time_keyboard=True)
+    builder.adjust(3, 2)
+    return builder.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
 def get_stress_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура для выбора уровня стресса (0-10)."""
+    """Клавиатура для выбора уровня стресса."""
     builder = ReplyKeyboardBuilder()
-    buttons = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
-    for btn in buttons:
-        builder.add(KeyboardButton(text=btn))
+    for i in range(11):
+        builder.add(KeyboardButton(text=str(i)))
     builder.adjust(4, 4, 3)
-    return builder.as_markup(resize_keyboard=True, one_time_keyboard=True)
+    return builder.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
 def get_sleep_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура для ввода часов сна (можно ввести вручную)."""
+    """Клавиатура для выбора часов сна."""
     builder = ReplyKeyboardBuilder()
     builder.add(
         KeyboardButton(text="4"),
@@ -70,9 +64,12 @@ def get_sleep_keyboard() -> ReplyKeyboardMarkup:
         KeyboardButton(text="6"),
         KeyboardButton(text="7"),
         KeyboardButton(text="8"),
+        KeyboardButton(text="9"),
+        KeyboardButton(text="10"),
+        KeyboardButton(text="⏭ Пропустить"),
     )
-    builder.adjust(3, 2)
-    return builder.as_markup(resize_keyboard=True, one_time_keyboard=True)
+    builder.adjust(3, 3, 2)
+    return builder.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
 def get_skip_keyboard() -> ReplyKeyboardMarkup:
@@ -83,55 +80,64 @@ def get_skip_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_cancel_keyboard() -> ReplyKeyboardMarkup:
-    """Клавиатура с кнопкой '❌ Отмена'."""
+    """Клавиатура с кнопкой 'Отмена'."""
     builder = ReplyKeyboardBuilder()
     builder.add(KeyboardButton(text="❌ Отмена"))
     return builder.as_markup(resize_keyboard=True, one_time_keyboard=False)
 
 
-# ==================== КЛАВИАТУРЫ ДЛЯ ПРЕДПРОСМОТРА ====================
-
 def get_confirm_keyboard() -> InlineKeyboardMarkup:
-    """Inline-клавиатура для подтверждения записи."""
-    builder = InlineKeyboardBuilder()
-    builder.add(
-        InlineKeyboardButton(text="✅ Сохранить", callback_data="diary_save"),
-        InlineKeyboardButton(text="✏️ Изменить", callback_data="diary_edit"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="diary_cancel"),
+    """Клавиатура для подтверждения."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Сохранить", callback_data="diary_save"),
+                InlineKeyboardButton(text="✏️ Изменить", callback_data="diary_edit"),
+            ],
+            [
+                InlineKeyboardButton(text="❌ Отменить", callback_data="diary_cancel"),
+            ]
+        ]
     )
-    builder.adjust(3)
-    return builder.as_markup()
 
 
 def get_entry_detail_keyboard(entry_id: int) -> InlineKeyboardMarkup:
-    """Inline-клавиатура для деталей записи."""
-    builder = InlineKeyboardBuilder()
-    builder.add(
-        InlineKeyboardButton(text="✏️ Изменить", callback_data=f"diary_edit_entry_{entry_id}"),
-        InlineKeyboardButton(text="🗑 Удалить", callback_data=f"diary_delete_entry_{entry_id}"),
-        InlineKeyboardButton(text="🔙 Назад", callback_data="diary_back_to_history"),
+    """Клавиатура для просмотра записи."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✏️ Редактировать", callback_data=f"diary_edit_entry_{entry_id}"),
+                InlineKeyboardButton(text="🗑 Удалить", callback_data=f"diary_delete_entry_{entry_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад", callback_data="diary_back_to_menu"),
+            ]
+        ]
     )
-    builder.adjust(2, 1)
-    return builder.as_markup()
 
 
 def get_confirm_delete_keyboard(entry_id: int) -> InlineKeyboardMarkup:
-    """Inline-клавиатура для подтверждения удаления."""
-    builder = InlineKeyboardBuilder()
-    builder.add(
-        InlineKeyboardButton(text="❌ Отмена", callback_data="diary_cancel_delete"),
-        InlineKeyboardButton(text="🗑 Да, удалить", callback_data=f"diary_confirm_delete_{entry_id}"),
+    """Клавиатура для подтверждения удаления."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"diary_confirm_delete_{entry_id}"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="diary_cancel_delete"),
+            ]
+        ]
     )
-    builder.adjust(2)
-    return builder.as_markup()
 
 
-def get_date_navigation_keyboard(offset: int = 0) -> InlineKeyboardMarkup:
-    """Inline-клавиатура для навигации по датам."""
-    builder = InlineKeyboardBuilder()
-    builder.add(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"diary_history_offset_{offset - 10}"),
-        InlineKeyboardButton(text="➡️ Далее", callback_data=f"diary_history_offset_{offset + 10}"),
+def get_date_navigation_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для навигации по датам."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="◀️ Назад", callback_data="diary_prev_day"),
+                InlineKeyboardButton(text="▶️ Вперёд", callback_data="diary_next_day"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Назад в меню", callback_data="diary_back_to_menu"),
+            ]
+        ]
     )
-    builder.adjust(2)
-    return builder.as_markup()
