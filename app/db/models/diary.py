@@ -8,6 +8,7 @@ from sqlalchemy import (
     Text,
     DateTime,
     Float,
+    ForeignKey,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -28,6 +29,7 @@ class DiaryEntry(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(
         BigInteger,
+        ForeignKey("users.id"),
         nullable=False,
         index=True,
     )
@@ -45,60 +47,58 @@ class DiaryEntry(Base):
         nullable=False,
     )
     
-    # ==================== НОВЫЕ ПОЛЯ ====================
-    # Тип записи: "survey_morning", "survey_day", "survey_evening", "describe_state", "analysis", "clarification"
+    # ==================== ТИП ЗАПИСИ ====================
     entry_type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
         default="manual",
-        comment="Тип записи: survey_morning, survey_day, survey_evening, describe_state, analysis, clarification"
     )
     
-    # Связь с анализом (если есть)
+    # ==================== СВЯЗЬ С АНАЛИЗОМ ====================
     analysis_id: Mapped[Optional[int]] = mapped_column(
         Integer,
+        ForeignKey("analyses.id"),
         nullable=True,
         index=True,
     )
     
     # ==================== ПОЛЯ ДЛЯ ОПРОСОВ ====================
     # Утренний опрос
-    morning_q1: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Как проснулся?
-    morning_q2: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Что в теле?
-    morning_q3: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Настроение?
-    morning_q4: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Мысли?
-    morning_q5: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Сон?
-    morning_clarification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Уточнение
+    morning_q1: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    morning_q2: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    morning_q3: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    morning_q4: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    morning_q5: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    morning_clarification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Дневной опрос
-    day_q1: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Как сейчас?
-    day_q2: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Что изменилось?
-    day_q3: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Что повлияло?
+    day_q1: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    day_q2: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    day_q3: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     # Вечерний опрос
-    evening_q1: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Как себя чувствуешь?
-    evening_q2: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Что повлияло?
-    evening_q3: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Что дало энергию?
-    evening_q4: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Что забрало силы?
-    evening_q5: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Еда/сон/движение?
-    evening_clarification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Уточнение
+    evening_q1: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    evening_q2: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    evening_q3: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    evening_q4: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    evening_q5: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    evening_clarification: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # ==================== ПОЛЯ ДЛЯ РАЗБОРА ====================
-    # Разбор (гипотезы, выводы, микродействия)
-    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Краткое резюме
-    analysis_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Полный анализ
-    micro_action: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Микродействие
-    medical_warning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Медицинское предупреждение
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    analysis_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    micro_action: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    medical_warning: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # ==================== ПОЛЯ ДЛЯ «ОПИСАТЬ СОСТОЯНИЕ» ====================
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Описание пользователя
-    ai_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Ответ AI
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ai_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # ==================== УТОЧНЯЮЩИЕ ВОПРОСЫ ====================
-    clarification_question: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Вопрос
-    clarification_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Ответ
+    clarification_question: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    clarification_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Связи
+    # ==================== СВЯЗИ ====================
     user: Mapped["User"] = relationship(
         "User",
         back_populates="diary_entries",
