@@ -1,6 +1,6 @@
 """
 Обработчик для раздела «Дневник».
-Показывает все события пользователя, сгруппированные по датам.
+Показывает все события пользователя, сгруппированные по датам и сессиям.
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -53,34 +53,56 @@ def format_event_for_display(event: DiaryEvent, user_tz) -> str:
         return f"🕐 {time_str}\n📋 {event.event_type}\n"
 
 
-def format_event_full(event: DiaryEvent, user_tz) -> str:
-    """Форматирует событие для полного просмотра."""
-    time_str = event.created_at.astimezone(user_tz).strftime("%d.%m.%Y %H:%M")
+def format_dialog_preview(events: list, user_tz) -> tuple:
+    """Форматирует диалог для краткого отображения."""
+    if not events:
+        return "📝 Пустой диалог", None
     
-    # Типы событий
-    if event.event_type == "describe_user":
-        return f"📝 <b>Ты написал</b>\n🕐 {time_str}\n\n{event.content}\n"
-    elif event.event_type == "describe_ai":
-        return f"🧠 <b>Ответ AI</b>\n🕐 {time_str}\n\n{event.content}\n"
-    elif event.event_type == "survey_morning":
-        return f"🌅 <b>Утренний опрос</b>\n🕐 {time_str}\n\n{event.content}\n"
-    elif event.event_type == "survey_day":
-        return f"☀️ <b>Дневной опрос</b>\n🕐 {time_str}\n\n{event.content}\n"
-    elif event.event_type == "survey_evening":
-        return f"🌆 <b>Вечерний опрос</b>\n🕐 {time_str}\n\n{event.content}\n"
-    elif event.event_type == "analysis":
-        return f"🧠 <b>Анализ</b>\n🕐 {time_str}\n\n{event.content}\n"
-    elif event.event_type == "clarification_question":
-        return f"❓ <b>Ты спросил</b>\n🕐 {time_str}\n\n{event.content}\n"
-    elif event.event_type == "clarification_answer":
-        return f"💬 <b>Ответ AI</b>\n🕐 {time_str}\n\n{event.content}\n"
-    else:
-        return f"📋 {event.event_type}\n🕐 {time_str}\n\n{event.content or 'Нет содержимого'}\n"
+    first_event = events[0]
+    time_str = first_event.created_at.astimezone(user_tz).strftime("%H:%M")
+    
+    # Находим первое сообщение пользователя
+    user_message = None
+    for event in events:
+        if event.event_type == "describe_user":
+            user_message = event.content
+            break
+    
+    if not user_message:
+        user_message = "Нет сообщений"
+    
+    preview = f"🕐 {time_str}\n📝 <b>Новый диалог</b>\n{user_message[:80]}..."
+    return preview, first_event.session_id
+
+
+def format_dialog_full(events: list, user_tz) -> str:
+    """Форматирует полный диалог для отображения."""
+    if not events:
+        return "📝 Пустой диалог"
+    
+    first_event = events[0]
+    date_str = first_event.created_at.astimezone(user_tz).strftime("%d.%m.%Y")
+    
+    text = f"💬 <b>Диалог</b>\n📅 {date_str}\n\n"
+    
+    for event in events:
+        time_str = event.created_at.astimezone(user_tz).strftime("%H:%M")
+        
+        if event.event_type == "describe_user":
+            text += f"👤 <b>Ты</b> 🕐 {time_str}\n{event.content}\n\n"
+        elif event.event_type == "describe_ai":
+            text += f"🧠 <b>AI</b> 🕐 {time_str}\n{event.content}\n\n"
+        elif event.event_type == "clarification_question":
+            text += f"❓ <b>Ты спросил</b> 🕐 {time_str}\n{event.content}\n\n"
+        elif event.event_type == "clarification_answer":
+            text += f"💬 <b>Ответ AI</b> 🕐 {time_str}\n{event.content}\n\n"
+    
+    return text
 
 
 @router.message(F.text == "📔 Дневник")
 async def show_diary(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Показывает дневник — события за сегодня."""
+    """Показывает дневник — диалоги за сегодня."""
     await state.clear()
     
     telegram_id = message.from_user.id
@@ -115,17 +137,41 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
         )
         return
     
-    # Формируем текст с кнопками для каждого события
+    # Группируем события по сессиям
+    sessions = {}
+    for event in events:
+        if event.event_type in ["describe_user", "describe_ai", "clarification_question", "clarification_answer"]:
+            session_id = event.session_id or f"single_{event.id}"
+            if session_id not in sessions:
+                sessions[session_id] = []
+            sessions[session_id].append(event)
+    
+    # Формируем текст с диалогами
     text = f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\n"
     
     keyboard_buttons = []
-    for idx, event in enumerate(events):
-        text += format_event_for_display(event, user_tz)
-        text += "\n"
-        # Добавляем кнопку "Подробнее" для каждого события
+    idx = 0
+    for session_id, session_events in sessions.items():
+        idx += 1
+        preview, _ = format_dialog_preview(session_events, user_tz)
+        text += preview
+        text += "\n\n"
+        
         keyboard_buttons.append(
             [InlineKeyboardButton(
-                text=f"📖 Подробнее #{idx+1}",
+                text=f"📖 Подробнее #{idx}",
+                callback_data=f"diary_dialog_detail_{session_id}"
+            )]
+        )
+    
+    # Если есть события не из диалогов (опросы и т.д.)
+    other_events = [e for e in events if e.event_type not in ["describe_user", "describe_ai", "clarification_question", "clarification_answer"]]
+    for event in other_events:
+        text += format_event_for_display(event, user_tz)
+        text += "\n"
+        keyboard_buttons.append(
+            [InlineKeyboardButton(
+                text=f"📖 Подробнее",
                 callback_data=f"diary_event_detail_{event.id}"
             )]
         )
@@ -154,9 +200,70 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
     logger.info(f"User opened diary: {telegram_id}")
 
 
+@router.callback_query(F.data.startswith("diary_dialog_detail_"))
+async def show_diary_dialog_detail(callback: CallbackQuery, db_session: AsyncSession):
+    """Показывает полный диалог по session_id."""
+    await callback.answer()
+    
+    session_id = callback.data.replace("diary_dialog_detail_", "")
+    telegram_id = callback.from_user.id
+    
+    result = await db_session.execute(
+        select(User).where(User.telegram_id == telegram_id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        await callback.message.edit_text(
+            "⚠️ Пожалуйста, отправьте /start",
+            reply_markup=None,
+        )
+        return
+    
+    diary_repo = DiaryRepository(db_session)
+    
+    # Получаем все события этой сессии
+    events = await diary_repo.get_session_events(user.id, session_id)
+    
+    if not events:
+        await callback.message.edit_text(
+            "❌ Диалог не найден.",
+            reply_markup=None,
+        )
+        return
+    
+    user_tz = get_user_timezone(user)
+    
+    # Форматируем полный диалог
+    text = format_dialog_full(events, user_tz)
+    
+    # Кнопка "Назад"
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🔙 Назад к дневнику",
+                callback_data="diary_back_to_today"
+            )]
+        ]
+    )
+    
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+    except Exception:
+        await callback.message.answer(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+
+
 @router.callback_query(F.data.startswith("diary_event_detail_"))
 async def show_diary_event_detail(callback: CallbackQuery, db_session: AsyncSession):
-    """Показывает полное содержимое события."""
+    """Показывает полное содержимое события (для опросов и т.д.)."""
     await callback.answer()
     
     event_id = int(callback.data.replace("diary_event_detail_", ""))
@@ -187,9 +294,9 @@ async def show_diary_event_detail(callback: CallbackQuery, db_session: AsyncSess
     user_tz = get_user_timezone(user)
     
     # Форматируем полное содержимое
+    from .diary import format_event_full
     text = format_event_full(event, user_tz)
     
-    # Кнопка "Назад"
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(
@@ -199,7 +306,6 @@ async def show_diary_event_detail(callback: CallbackQuery, db_session: AsyncSess
         ]
     )
     
-    # Если это сообщение в списке — редактируем его
     try:
         await callback.message.edit_text(
             text,
@@ -207,7 +313,6 @@ async def show_diary_event_detail(callback: CallbackQuery, db_session: AsyncSess
             parse_mode="HTML",
         )
     except Exception:
-        # Если не удалось отредактировать — отправляем новое
         await callback.message.answer(
             text,
             reply_markup=keyboard,
@@ -308,13 +413,36 @@ async def show_diary_events_for_date(callback: CallbackQuery, db_session: AsyncS
     
     text = f"📔 <b>{event_date.strftime('%d.%m.%Y')}</b>\n\n"
     
+    # Группируем по сессиям
+    sessions = {}
+    for event in events:
+        if event.event_type in ["describe_user", "describe_ai", "clarification_question", "clarification_answer"]:
+            session_id = event.session_id or f"single_{event.id}"
+            if session_id not in sessions:
+                sessions[session_id] = []
+            sessions[session_id].append(event)
+    
     keyboard_buttons = []
-    for idx, event in enumerate(events):
+    idx = 0
+    for session_id, session_events in sessions.items():
+        idx += 1
+        preview, _ = format_dialog_preview(session_events, user_tz)
+        text += preview
+        text += "\n\n"
+        keyboard_buttons.append(
+            [InlineKeyboardButton(
+                text=f"📖 Подробнее #{idx}",
+                callback_data=f"diary_dialog_detail_{session_id}"
+            )]
+        )
+    
+    other_events = [e for e in events if e.event_type not in ["describe_user", "describe_ai", "clarification_question", "clarification_answer"]]
+    for event in other_events:
         text += format_event_for_display(event, user_tz)
         text += "\n"
         keyboard_buttons.append(
             [InlineKeyboardButton(
-                text=f"📖 Подробнее #{idx+1}",
+                text=f"📖 Подробнее",
                 callback_data=f"diary_event_detail_{event.id}"
             )]
         )
@@ -375,13 +503,35 @@ async def diary_back_to_today(callback: CallbackQuery, db_session: AsyncSession)
     
     text = f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\n"
     
+    sessions = {}
+    for event in events:
+        if event.event_type in ["describe_user", "describe_ai", "clarification_question", "clarification_answer"]:
+            session_id = event.session_id or f"single_{event.id}"
+            if session_id not in sessions:
+                sessions[session_id] = []
+            sessions[session_id].append(event)
+    
     keyboard_buttons = []
-    for idx, event in enumerate(events):
+    idx = 0
+    for session_id, session_events in sessions.items():
+        idx += 1
+        preview, _ = format_dialog_preview(session_events, user_tz)
+        text += preview
+        text += "\n\n"
+        keyboard_buttons.append(
+            [InlineKeyboardButton(
+                text=f"📖 Подробнее #{idx}",
+                callback_data=f"diary_dialog_detail_{session_id}"
+            )]
+        )
+    
+    other_events = [e for e in events if e.event_type not in ["describe_user", "describe_ai", "clarification_question", "clarification_answer"]]
+    for event in other_events:
         text += format_event_for_display(event, user_tz)
         text += "\n"
         keyboard_buttons.append(
             [InlineKeyboardButton(
-                text=f"📖 Подробнее #{idx+1}",
+                text=f"📖 Подробнее",
                 callback_data=f"diary_event_detail_{event.id}"
             )]
         )
@@ -437,3 +587,27 @@ def get_diary_menu_keyboard() -> InlineKeyboardMarkup:
             )]
         ]
     )
+
+
+def format_event_full(event: DiaryEvent, user_tz) -> str:
+    """Форматирует событие для полного просмотра."""
+    time_str = event.created_at.astimezone(user_tz).strftime("%d.%m.%Y %H:%M")
+    
+    if event.event_type == "describe_user":
+        return f"📝 <b>Ты написал</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "describe_ai":
+        return f"🧠 <b>Ответ AI</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "survey_morning":
+        return f"🌅 <b>Утренний опрос</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "survey_day":
+        return f"☀️ <b>Дневной опрос</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "survey_evening":
+        return f"🌆 <b>Вечерний опрос</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "analysis":
+        return f"🧠 <b>Анализ</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "clarification_question":
+        return f"❓ <b>Ты спросил</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "clarification_answer":
+        return f"💬 <b>Ответ AI</b>\n🕐 {time_str}\n\n{event.content}\n"
+    else:
+        return f"📋 {event.event_type}\n🕐 {time_str}\n\n{event.content or 'Нет содержимого'}\n"
