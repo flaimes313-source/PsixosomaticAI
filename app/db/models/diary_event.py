@@ -12,10 +12,10 @@ from sqlalchemy import (
     Index,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, date
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Any, Dict
 import uuid
 
 from app.db.base import Base
@@ -48,9 +48,6 @@ class DiaryEvent(Base):
     )
     
     # ==================== ТИП СОБЫТИЯ ====================
-    # describe_user, describe_ai, survey_morning, survey_day, survey_evening,
-    # analysis, clarification_question, clarification_answer, micro_action,
-    # dynamics_report, system
     event_type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
@@ -58,11 +55,13 @@ class DiaryEvent(Base):
     )
     
     # ==================== ИСТОЧНИК ====================
-    # describe_state, morning_survey, day_survey, evening_survey, system
-    source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    source: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True,
+    )
     
     # ==================== СЕССИЯ ====================
-    # UUID для группировки сообщений одного диалога
     session_id: Mapped[Optional[str]] = mapped_column(
         String(36),
         nullable=True,
@@ -70,15 +69,18 @@ class DiaryEvent(Base):
     )
     
     # ==================== РОЛЬ ====================
-    # user, assistant, system
-    role: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    role: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+    )
     
     # ==================== СОДЕРЖИМОЕ ====================
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # ==================== СТРУКТУРИРОВАННЫЕ ДАННЫЕ ====================
-    payload: Mapped[Optional[dict]] = mapped_column(
-        dict,  # JSONB в PostgreSQL
+    # Используем JSONB для PostgreSQL
+    payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSONB,
         nullable=True,
     )
     
