@@ -77,7 +77,6 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Неизвестно"
     
-    # Получаем количество событий в дневнике
     diary_repo = DiaryRepository(db_session)
     events_count = await diary_repo.count_user_events(user.id)
     
@@ -116,7 +115,7 @@ async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext,
     """
     Показывает профиль пользователя из callback.
     Использует callback.from_user.id для получения пользователя.
-    Редактирует исходное сообщение.
+    Отправляет НОВОЕ сообщение (не редактирует удалённое).
     """
     await state.clear()
     
@@ -192,11 +191,13 @@ async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext,
         "Выбери раздел для управления:"
     )
     
-    await callback.message.edit_text(
+    # ==================== ИСПРАВЛЕНО: ОТПРАВЛЯЕМ НОВОЕ СООБЩЕНИЕ ====================
+    await callback.message.answer(
         text,
         reply_markup=get_profile_menu_keyboard(),
         parse_mode="HTML",
     )
+    # =============================================================================
     
     logger.info(f"User opened profile from callback: {user_id}")
 
@@ -223,7 +224,7 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
     
     if action == "back_to_profile":
         await callback.message.delete()
-        await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО
+        await show_profile_from_callback(callback, state, db_session)
         return
     
     if action == "back_to_menu":
@@ -312,9 +313,9 @@ async def back_to_profile_generic(callback: CallbackQuery, state: FSMContext, db
     if db_session is None:
         from app.db.database import AsyncSessionLocal
         async with AsyncSessionLocal() as new_session:
-            await show_profile_from_callback(callback, state, new_session)  # ← ИСПРАВЛЕНО
+            await show_profile_from_callback(callback, state, new_session)
     else:
-        await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО
+        await show_profile_from_callback(callback, state, db_session)
 
 
 @router.callback_query(F.data == "history_back_to_profile")
@@ -327,6 +328,6 @@ async def history_back_to_profile(callback: CallbackQuery, state: FSMContext, db
     if db_session is None:
         from app.db.database import AsyncSessionLocal
         async with AsyncSessionLocal() as new_session:
-            await show_profile_from_callback(callback, state, new_session)  # ← ИСПРАВЛЕНО
+            await show_profile_from_callback(callback, state, new_session)
     else:
-        await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО
+        await show_profile_from_callback(callback, state, db_session)
