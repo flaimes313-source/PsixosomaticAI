@@ -29,7 +29,7 @@ def get_user_timezone(user) -> ZoneInfo:
 
 
 def format_event_for_display(event: DiaryEvent, user_tz) -> str:
-    """Форматирует событие для отображения в дневнике."""
+    """Форматирует событие для отображения в дневнике (кратко)."""
     time_str = event.created_at.astimezone(user_tz).strftime("%H:%M")
     
     # Типы событий
@@ -51,6 +51,31 @@ def format_event_for_display(event: DiaryEvent, user_tz) -> str:
         return f"🕐 {time_str}\n💬 <b>Ответ AI:</b>\n{event.content[:100]}...\n"
     else:
         return f"🕐 {time_str}\n📋 {event.event_type}\n"
+
+
+def format_event_full(event: DiaryEvent, user_tz) -> str:
+    """Форматирует событие для полного просмотра."""
+    time_str = event.created_at.astimezone(user_tz).strftime("%d.%m.%Y %H:%M")
+    
+    # Типы событий
+    if event.event_type == "describe_user":
+        return f"📝 <b>Ты написал</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "describe_ai":
+        return f"🧠 <b>Ответ AI</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "survey_morning":
+        return f"🌅 <b>Утренний опрос</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "survey_day":
+        return f"☀️ <b>Дневной опрос</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "survey_evening":
+        return f"🌆 <b>Вечерний опрос</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "analysis":
+        return f"🧠 <b>Анализ</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "clarification_question":
+        return f"❓ <b>Ты спросил</b>\n🕐 {time_str}\n\n{event.content}\n"
+    elif event.event_type == "clarification_answer":
+        return f"💬 <b>Ответ AI</b>\n🕐 {time_str}\n\n{event.content}\n"
+    else:
+        return f"📋 {event.event_type}\n🕐 {time_str}\n\n{event.content or 'Нет содержимого'}\n"
 
 
 @router.message(F.text == "📔 Дневник")
@@ -90,26 +115,36 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
         )
         return
     
-    # Формируем текст
+    # Формируем текст с кнопками для каждого события
     text = f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\n"
     
-    for event in events:
+    keyboard_buttons = []
+    for idx, event in enumerate(events):
         text += format_event_for_display(event, user_tz)
         text += "\n"
+        # Добавляем кнопку "Подробнее" для каждого события
+        keyboard_buttons.append(
+            [InlineKeyboardButton(
+                text=f"📖 Подробнее #{idx+1}",
+                callback_data=f"diary_event_detail_{event.id}"
+            )]
+        )
     
     # Кнопки для навигации
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
-                text="📅 Другие дни",
-                callback_data="diary_dates"
-            )],
-            [InlineKeyboardButton(
-                text="🔙 В меню",
-                callback_data="diary_back_to_menu"
-            )]
-        ]
-    )
+    keyboard_buttons.append([
+        InlineKeyboardButton(
+            text="📅 Другие дни",
+            callback_data="diary_dates"
+        )
+    ])
+    keyboard_buttons.append([
+        InlineKeyboardButton(
+            text="🔙 В меню",
+            callback_data="diary_back_to_menu"
+        )
+    ])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
     await message.answer(
         text,
@@ -117,6 +152,67 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
         parse_mode="HTML",
     )
     logger.info(f"User opened diary: {telegram_id}")
+
+
+@router.callback_query(F.data.startswith("diary_event_detail_"))
+async def show_diary_event_detail(callback: CallbackQuery, db_session: AsyncSession):
+    """Показывает полное содержимое события."""
+    await callback.answer()
+    
+    event_id = int(callback.data.replace("diary_event_detail_", ""))
+    telegram_id = callback.from_user.id
+    
+    result = await db_session.execute(
+        select(User).where(User.telegram_id == telegram_id)
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        await callback.message.edit_text(
+            "⚠️ Пожалуйста, отправьте /start",
+            reply_markup=None,
+        )
+        return
+    
+    diary_repo = DiaryRepository(db_session)
+    event = await diary_repo.get_event(event_id, user.id)
+    
+    if not event:
+        await callback.message.edit_text(
+            "❌ Событие не найдено.",
+            reply_markup=None,
+        )
+        return
+    
+    user_tz = get_user_timezone(user)
+    
+    # Форматируем полное содержимое
+    text = format_event_full(event, user_tz)
+    
+    # Кнопка "Назад"
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🔙 Назад к дневнику",
+                callback_data="diary_back_to_today"
+            )]
+        ]
+    )
+    
+    # Если это сообщение в списке — редактируем его
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+    except Exception:
+        # Если не удалось отредактировать — отправляем новое
+        await callback.message.answer(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
 
 
 @router.callback_query(F.data == "diary_dates")
@@ -212,22 +308,31 @@ async def show_diary_events_for_date(callback: CallbackQuery, db_session: AsyncS
     
     text = f"📔 <b>{event_date.strftime('%d.%m.%Y')}</b>\n\n"
     
-    for event in events:
+    keyboard_buttons = []
+    for idx, event in enumerate(events):
         text += format_event_for_display(event, user_tz)
         text += "\n"
-    
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
+        keyboard_buttons.append(
             [InlineKeyboardButton(
-                text="🔙 Назад к датам",
-                callback_data="diary_dates"
-            )],
-            [InlineKeyboardButton(
-                text="🔙 В меню",
-                callback_data="diary_back_to_menu"
+                text=f"📖 Подробнее #{idx+1}",
+                callback_data=f"diary_event_detail_{event.id}"
             )]
-        ]
-    )
+        )
+    
+    keyboard_buttons.append([
+        InlineKeyboardButton(
+            text="🔙 Назад к датам",
+            callback_data="diary_dates"
+        )
+    ])
+    keyboard_buttons.append([
+        InlineKeyboardButton(
+            text="🔙 В меню",
+            callback_data="diary_back_to_menu"
+        )
+    ])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
     await callback.message.edit_text(
         text,
@@ -270,22 +375,31 @@ async def diary_back_to_today(callback: CallbackQuery, db_session: AsyncSession)
     
     text = f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\n"
     
-    for event in events:
+    keyboard_buttons = []
+    for idx, event in enumerate(events):
         text += format_event_for_display(event, user_tz)
         text += "\n"
-    
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
+        keyboard_buttons.append(
             [InlineKeyboardButton(
-                text="📅 Другие дни",
-                callback_data="diary_dates"
-            )],
-            [InlineKeyboardButton(
-                text="🔙 В меню",
-                callback_data="diary_back_to_menu"
+                text=f"📖 Подробнее #{idx+1}",
+                callback_data=f"diary_event_detail_{event.id}"
             )]
-        ]
-    )
+        )
+    
+    keyboard_buttons.append([
+        InlineKeyboardButton(
+            text="📅 Другие дни",
+            callback_data="diary_dates"
+        )
+    ])
+    keyboard_buttons.append([
+        InlineKeyboardButton(
+            text="🔙 В меню",
+            callback_data="diary_back_to_menu"
+        )
+    ])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
     await callback.message.edit_text(
         text,
