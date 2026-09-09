@@ -100,7 +100,7 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
     
     # ==================== СОХРАНЯЕМ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ ====================
     await diary_service.record_user_message(
-        user_id=telegram_id,
+        telegram_id=telegram_id,
         content=description,
         session_id=session_id,
         source="describe_state",
@@ -133,7 +133,7 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             
             # ==================== СОХРАНЯЕМ ОТВЕТ AI ====================
             await diary_service.record_ai_response(
-                user_id=telegram_id,
+                telegram_id=telegram_id,
                 content=answer,
                 session_id=session_id,
                 source="describe_state",
@@ -237,7 +237,7 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
     
     # ==================== СОХРАНЯЕМ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ ====================
     await diary_service.record_user_message(
-        user_id=telegram_id,
+        telegram_id=telegram_id,
         content=user_text,
         session_id=session_id,
         source="describe_state",
@@ -302,7 +302,7 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         
         # ==================== СОХРАНЯЕМ ОТВЕТ AI ====================
         await diary_service.record_ai_response(
-            user_id=telegram_id,
+            telegram_id=telegram_id,
             content=response,
             session_id=session_id,
             source="describe_state",
