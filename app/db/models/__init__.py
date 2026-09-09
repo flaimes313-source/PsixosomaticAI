@@ -1,14 +1,23 @@
 """
-Инициализация моделей.
+Инициализация моделей базы данных.
 """
-from .user import User
-from .analysis import Analysis
-from .clarification import Clarification
-from .diary import DiaryEntry
-from .reminder import ReminderSettings
-from .subscription import Subscription, PlanType, SubscriptionStatus
-from .usage import UserUsage
-from .payment import Payment, PaymentStatus
-from .whitelist import ProWhitelist  # ← НОВОЕ
-from .support import SupportRequest   # ← НОВОЕ
-from .broadcast import Broadcast      # ← НОВОЕ
+from app.db.models.user import User
+from app.db.models.diary_event import DiaryEvent
+from app.db.models.analysis import Analysis
+from app.db.models.clarification import Clarification
+from app.db.models.subscription import Subscription
+from app.db.models.whitelist import ProWhitelist
+from app.db.models.support import SupportRequest
+from app.db.models.broadcast import Broadcast
+from app.db.models.reminder import ReminderSettings
+from app.db.models.payment import Payment
+from app.db.models.help_dialog import HelpDialogMessage
+
+# Обновляем User с связью с DiaryEvent
+# Добавляем в User модель:
+# diary_events: Mapped[List["DiaryEvent"]] = relationship(
+#     "DiaryEvent",
+#     back_populates="user",
+#     cascade="all, delete-orphan",
+#     order_by="DiaryEvent.created_at.desc()",
+# )

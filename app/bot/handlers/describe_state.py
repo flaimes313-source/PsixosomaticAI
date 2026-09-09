@@ -1,22 +1,25 @@
 """
 Обработчик для кнопки «📝 Описать состояние».
 Полноценный диалог с живым AI-ответом (без JSON, без шаблонов).
+Сохраняет всё в DiaryEvent.
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from datetime import datetime
+import uuid
 
 from app.bot.states import DescribeStateStates
 from app.bot.keyboards import get_main_menu_keyboard, get_cancel_keyboard
 from app.bot.keyboards.pro import get_pro_locked_keyboard
 from app.services.ai_service import ai_service
 from app.services.access_service import AccessService
+from app.services.diary_event_service import DiaryEventService
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
 from app.db.repositories.clarification import ClarificationRepository
-from app.db.repositories.diary import DiaryRepository
 from app.utils.logging import logger
 
 router = Router()
@@ -24,7 +27,7 @@ router = Router()
 
 @router.message(F.text == "📝 Описать состояние")
 async def start_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Запускает сценарий «Описать состояние» (полноценный диалог)."""
+    """Запускает сценарий «Описать состояние»."""
     await state.clear()
     
     telegram_id = message.from_user.id
@@ -40,6 +43,14 @@ async def start_describe_state(message: types.Message, state: FSMContext, db_ses
         )
         return
     
+    # Создаём сессию
+    session_id = str(uuid.uuid4())
+    
+    await state.update_data(
+        session_id=session_id,
+        dialog_history=[],
+        is_first_message=True,
+    )
     await state.set_state(DescribeStateStates.waiting_for_description)
     
     dialog_message = await message.answer(
@@ -56,12 +67,12 @@ async def start_describe_state(message: types.Message, state: FSMContext, db_ses
     )
     
     await state.update_data(dialog_message_id=dialog_message.message_id)
-    logger.info(f"User started describe state: {telegram_id}")
+    logger.info(f"User started describe state: {telegram_id}, session={session_id}")
 
 
 @router.message(DescribeStateStates.waiting_for_description, F.text)
 async def process_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обрабатывает первое описание состояния и запускает AI-диалог."""
+    """Обрабатывает первое описание состояния."""
     telegram_id = message.from_user.id
     description = message.text.strip()
     
@@ -83,6 +94,18 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
     
     data = await state.get_data()
     dialog_message_id = data.get("dialog_message_id")
+    session_id = data.get("session_id")
+    
+    diary_service = DiaryEventService(db_session)
+    
+    # ==================== СОХРАНЯЕМ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ ====================
+    await diary_service.record_user_message(
+        user_id=telegram_id,
+        content=description,
+        session_id=session_id,
+        source="describe_state",
+    )
+    # =========================================================================
     
     loading_message = await message.answer(
         "🧠 <b>Думаю над твоим состоянием...</b>\n\nПожалуйста, подожди.",
@@ -103,48 +126,29 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
         
         if result["success"]:
             answer = result["answer"]
-            saved = result.get("saved", False)
             analysis_id = result.get("analysis_id")
-            user_id = result.get("user_id")
             
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
-            # ==================== СОХРАНЯЕМ В ДНЕВНИК (ИСПРАВЛЕНО) ====================
-            try:
-                user_result = await db_session.execute(
-                    select(User).where(User.telegram_id == telegram_id)
-                )
-                user = user_result.scalar_one_or_none()
-                
-                if user and analysis_id:
-                    diary_repo = DiaryRepository(db_session)
-                    # ==================== ИСПОЛЬЗУЕМ save_analysis (РАБОТАЕТ!) ====================
-                    await diary_repo.save_analysis(
-                        user_id=user.id,
-                        symptom=description[:200],
-                        analysis_text=answer,
-                        summary=description[:100],
-                        analysis_id=analysis_id,
-                    )
-                    # ============================================================================
-                    logger.info(f"Describe state saved to diary for user {telegram_id}")
-            except Exception as e:
-                logger.error(f"Failed to save describe state to diary: {e}")
-            # ================================================================================
+            # ==================== СОХРАНЯЕМ ОТВЕТ AI ====================
+            await diary_service.record_ai_response(
+                user_id=telegram_id,
+                content=answer,
+                session_id=session_id,
+                source="describe_state",
+                analysis_id=analysis_id,
+            )
+            # =============================================================
             
             dialog_text = f"📝 <b>Ты написал:</b>\n{description}\n\n"
             dialog_text += f"🧠 <b>Я думаю:</b>\n{answer}\n\n"
-            
-            if saved:
-                dialog_text += "✅ Сохранено в дневник и историю\n\n"
-            
+            dialog_text += "✅ Сохранено в дневник и историю\n\n"
             dialog_text += "━━━━━━━━━━━━━━━━━━━\n\n"
             dialog_text += "💬 <b>Продолжим диалог?</b>\nНапиши следующий вопрос или уточнение."
             
             await state.update_data(
                 analysis_id=analysis_id,
-                user_id=user_id,
                 is_dialog_active=True,
                 dialog_history=[
                     {"role": "user", "content": description},
@@ -201,7 +205,7 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
 
 @router.message(DescribeStateStates.waiting_for_continue, F.text)
 async def continue_describe_dialog(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Продолжает диалог — каждое новое сообщение добавляется в общий диалог."""
+    """Продолжает диалог."""
     telegram_id = message.from_user.id
     user_text = message.text.strip()
     
@@ -221,13 +225,24 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         return
     
     data = await state.get_data()
+    session_id = data.get("session_id")
     analysis_id = data.get("analysis_id")
-    user_id = data.get("user_id")
     dialog_history = data.get("dialog_history", [])
     dialog_text = data.get("dialog_text", "")
     dialog_message_id = data.get("dialog_message_id")
     
     dialog_history.append({"role": "user", "content": user_text})
+    
+    diary_service = DiaryEventService(db_session)
+    
+    # ==================== СОХРАНЯЕМ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ ====================
+    await diary_service.record_user_message(
+        user_id=telegram_id,
+        content=user_text,
+        session_id=session_id,
+        source="describe_state",
+    )
+    # =========================================================================
     
     loading_message = await message.answer(
         "🧠 <b>Думаю...</b>\n\nПожалуйста, подожди.",
@@ -285,7 +300,17 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         
         dialog_history.append({"role": "assistant", "content": response})
         
-        # Сохраняем в БД (как уточнение к анализу)
+        # ==================== СОХРАНЯЕМ ОТВЕТ AI ====================
+        await diary_service.record_ai_response(
+            user_id=telegram_id,
+            content=response,
+            session_id=session_id,
+            source="describe_state",
+            analysis_id=analysis_id,
+        )
+        # =============================================================
+        
+        # Сохраняем уточнение в Clarification (для обратной совместимости)
         try:
             if analysis_id:
                 user_result = await db_session.execute(
@@ -295,22 +320,12 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
                 
                 if user:
                     clarification_repo = ClarificationRepository(db_session)
-                    clarification = await clarification_repo.create(
+                    await clarification_repo.create(
                         analysis_id=analysis_id,
                         user_id=user.id,
                         question=user_text,
                         answer=response,
                     )
-                    
-                    # Сохраняем в дневник
-                    diary_repo = DiaryRepository(db_session)
-                    await diary_repo.save_clarification(
-                        user_id=user.id,
-                        question=user_text,
-                        answer=response,
-                        analysis_id=analysis_id,
-                    )
-                    logger.info(f"Clarification saved to diary for user {telegram_id}")
         except Exception as e:
             logger.error(f"Failed to save clarification: {e}")
         
@@ -404,7 +419,7 @@ async def describe_finish(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "describe_back_to_menu")
 async def describe_back_to_menu(callback: CallbackQuery, state: FSMContext):
-    """Возврат в главное меню (без завершения диалога)."""
+    """Возврат в главное меню."""
     await callback.answer()
     await state.clear()
     

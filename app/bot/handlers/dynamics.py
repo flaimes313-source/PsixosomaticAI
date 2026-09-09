@@ -5,6 +5,7 @@ from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from datetime import datetime, timedelta, date
 from typing import Optional
 
@@ -16,6 +17,7 @@ from app.bot.keyboards.dynamics import (
 from app.bot.keyboards import get_main_menu_keyboard
 from app.services.dynamics_service import DynamicsService
 from app.services.access_service import AccessService
+from app.db.models.user import User
 from app.utils.logging import logger
 
 router = Router()
@@ -191,72 +193,92 @@ async def _show_dynamics_report(
     )
     
     try:
+        # Получаем часовой пояс пользователя
+        result = await db_session.execute(
+            select(User).where(User.telegram_id == telegram_id)
+        )
+        user = result.scalar_one_or_none()
+        user_timezone = user.timezone if user else "UTC"
+        
         # Создаём сервис
         dynamics_service = DynamicsService(db_session)
         
         # Получаем отчёт
-        result = await dynamics_service.get_report(
+        report_result = await dynamics_service.get_report(
             user_id=telegram_id,
             period_days=period_days,
             start_date=start_date,
             end_date=end_date,
+            user_timezone=user_timezone,
         )
         
         await loading_message.delete()
         
-        if not result["success"]:
+        if not report_result["success"]:
             await message.answer(
-                f"📊 <b>Динамика</b>\n\n{result['message']}\n\n"
-                "Начни вести дневник, чтобы я мог анализировать твоё состояние!",
+                report_result.get("message", "Не удалось получить отчёт."),
                 reply_markup=get_main_menu_keyboard(),
                 parse_mode="HTML",
             )
+            await state.clear()
             return
         
-        report = result["report"]
-        stats = result["stats"]
+        report = report_result["report"]
         
         # Форматируем отчёт
-        period_str = f"{stats.start_date.strftime('%d.%m.%Y')} — {stats.end_date.strftime('%d.%m.%Y')}"
+        period_str = f"{report_result['start_date'].strftime('%d.%m.%Y')} — {report_result['end_date'].strftime('%d.%m.%Y')}"
         
-        text = f"📊 <b>Динамика за {stats.period_days} дней</b>\n"
+        text = f"📊 <b>Динамика за {report_result['period_days']} дней</b>\n"
         text += f"📅 {period_str}\n"
-        text += f"📝 {stats.entries_count} записей\n\n"
+        text += f"📝 {report_result['events_count']} событий\n\n"
         
-        text += f"{report.summary}\n\n"
+        text += f"{report.get('summary', '')}\n\n"
         
-        if report.main_patterns:
-            text += "📌 <b>Основные закономерности:</b>\n"
-            for pattern in report.main_patterns:
-                text += f"• {pattern}\n"
+        if report.get('mood_analysis'):
+            text += "🎭 <b>Настроение:</b>\n"
+            text += f"{report.get('mood_analysis')}\n\n"
+        
+        if report.get('energy_analysis'):
+            text += "⚡ <b>Энергия:</b>\n"
+            text += f"{report.get('energy_analysis')}\n\n"
+        
+        if report.get('tension_analysis'):
+            text += "🧘 <b>Напряжение тела:</b>\n"
+            text += f"{report.get('tension_analysis')}\n\n"
+        
+        if report.get('sleep_analysis'):
+            text += "😴 <b>Сон:</b>\n"
+            text += f"{report.get('sleep_analysis')}\n\n"
+        
+        if report.get('recurring_states'):
+            text += "🔄 <b>Повторяющиеся состояния:</b>\n"
+            for state in report.get('recurring_states', []):
+                text += f"• {state}\n"
             text += "\n"
         
-        if report.possible_connections:
-            text += "🔗 <b>Возможные связи:</b>\n"
-            for conn in report.possible_connections:
-                text += f"• {conn}\n"
+        if report.get('improvement_factors'):
+            text += "✅ <b>Факторы улучшения:</b>\n"
+            for factor in report.get('improvement_factors', []):
+                text += f"• {factor}\n"
             text += "\n"
         
-        if report.positive_changes:
-            text += "✅ <b>Положительные изменения:</b>\n"
-            for change in report.positive_changes:
-                text += f"• {change}\n"
+        if report.get('decline_factors'):
+            text += "⚠️ <b>Факторы ухудшения:</b>\n"
+            for factor in report.get('decline_factors', []):
+                text += f"• {factor}\n"
             text += "\n"
         
-        if report.areas_to_watch:
-            text += "👀 <b>На что обратить внимание:</b>\n"
-            for area in report.areas_to_watch:
-                text += f"• {area}\n"
+        if report.get('progress'):
+            text += "📈 <b>Прогресс:</b>\n"
+            for item in report.get('progress', []):
+                text += f"• {item}\n"
             text += "\n"
         
-        if report.next_steps:
-            text += "🌱 <b>Что можно попробовать:</b>\n"
-            for step in report.next_steps:
-                text += f"• {step}\n"
+        if report.get('recommendations'):
+            text += "🌱 <b>Рекомендации:</b>\n"
+            for rec in report.get('recommendations', []):
+                text += f"• {rec}\n"
             text += "\n"
-        
-        if report.medical_note:
-            text += f"ℹ️ {report.medical_note}\n\n"
         
         # Кнопки для продолжения
         keyboard = InlineKeyboardMarkup(

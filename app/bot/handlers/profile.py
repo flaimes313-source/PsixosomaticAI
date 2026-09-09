@@ -16,6 +16,7 @@ from app.bot.keyboards.profile import (
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.models.user import User
 from app.db.models.reminder import ReminderSettings
+from app.db.repositories.diary_repository import DiaryRepository
 from app.services.access_service import AccessService
 from app.services.subscription_service import SubscriptionService
 from app.utils.logging import logger
@@ -76,6 +77,10 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Неизвестно"
     
+    # Получаем количество событий в дневнике
+    diary_repo = DiaryRepository(db_session)
+    events_count = await diary_repo.count_user_events(user.id)
+    
     try:
         tz = ZoneInfo(user.timezone) if user.timezone else ZoneInfo("UTC")
         current_time = datetime.now(tz).strftime("%H:%M")
@@ -92,7 +97,8 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
         f"🌍 Часовой пояс: {timezone_display}\n"
         f"⏰ Текущее время: {current_time}\n\n"
         f"💳 <b>Подписка:</b> {plan_status}\n"
-        f"🔔 <b>Напоминания:</b> {reminder_status}\n\n"
+        f"🔔 <b>Напоминания:</b> {reminder_status}\n"
+        f"📔 <b>Записей в дневнике:</b> {events_count}\n\n"
         "Выбери раздел для управления:"
     )
     
@@ -104,7 +110,7 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     logger.info(f"User opened profile: {user_id}")
 
 
-# ==================== НОВАЯ ФУНКЦИЯ ДЛЯ ПОКАЗА ПРОФИЛЯ ИЗ CALLBACK ====================
+# ==================== ПОКАЗ ПРОФИЛЯ ИЗ CALLBACK ====================
 
 async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """
@@ -162,6 +168,9 @@ async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext,
     
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Неизвестно"
     
+    diary_repo = DiaryRepository(db_session)
+    events_count = await diary_repo.count_user_events(user.id)
+    
     try:
         tz = ZoneInfo(user.timezone) if user.timezone else ZoneInfo("UTC")
         current_time = datetime.now(tz).strftime("%H:%M")
@@ -178,20 +187,21 @@ async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext,
         f"🌍 Часовой пояс: {timezone_display}\n"
         f"⏰ Текущее время: {current_time}\n\n"
         f"💳 <b>Подписка:</b> {plan_status}\n"
-        f"🔔 <b>Напоминания:</b> {reminder_status}\n\n"
+        f"🔔 <b>Напоминания:</b> {reminder_status}\n"
+        f"📔 <b>Записей в дневнике:</b> {events_count}\n\n"
         "Выбери раздел для управления:"
     )
     
-    # ==================== РЕДАКТИРУЕМ ИСХОДНОЕ СООБЩЕНИЕ ====================
     await callback.message.edit_text(
         text,
         reply_markup=get_profile_menu_keyboard(),
         parse_mode="HTML",
     )
-    # =====================================================================
     
     logger.info(f"User opened profile from callback: {user_id}")
 
+
+# ==================== ОБРАБОТЧИК ДЕЙСТВИЙ В ПРОФИЛЕ ====================
 
 @router.callback_query(F.data.startswith("profile_"))
 async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession = None):
@@ -267,15 +277,13 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
     elif action == "help":
         help_text = (
             "❓ <b>Помощь</b>\n\n"
-            "🧠 Разобрать симптом\n"
-            "Помогает исследовать возможную связь\n"
-            "телесных ощущений со стрессом и эмоциями.\n\n"
+            "🧠 Описать состояние\n"
+            "Помогает исследовать связь между\n"
+            "телесными ощущениями и эмоциями.\n\n"
             "📔 Дневник\n"
-            "Ведите записи о состоянии.\n\n"
+            "Все события и наблюдения.\n\n"
             "📊 Моя динамика\n"
             "Анализирует ваши записи за период.\n\n"
-            "📋 История сессий\n"
-            "Все предыдущие разборы симптомов.\n\n"
             "⭐ PRO\n"
             "Расширенные возможности.\n\n"
             "👤 Профиль\n"
@@ -291,6 +299,8 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
             parse_mode="HTML",
         )
 
+
+# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
 
 @router.callback_query(F.data == "back_to_profile")
 async def back_to_profile_generic(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession = None):

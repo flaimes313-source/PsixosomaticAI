@@ -1,9 +1,10 @@
 """
 Обработчик вечернего опроса.
+Сохраняет каждый ответ в DiaryEvent.
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -19,10 +20,11 @@ from app.bot.keyboards.surveys import (
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.services.ai_service import ai_service
+from app.services.diary_event_service import DiaryEventService
+from app.services.access_service import AccessService
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
 from app.db.repositories.analysis import AnalysisRepository
-from app.db.repositories.diary import DiaryRepository
 from app.utils.logging import logger
 
 router = Router()
@@ -68,6 +70,17 @@ async def process_evening_q1(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q1=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_2)
     
+    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+    diary_service = DiaryEventService(db_session)
+    await diary_service.record_survey_answer(
+        user_id=message.from_user.id,
+        question="Как ты сейчас себя чувствуешь?",
+        answer=answer,
+        survey_type="evening",
+        payload={"question_number": 1},
+    )
+    # =============================================================
+    
     await message.answer(
         "2️⃣ <b>Что сегодня сильнее всего повлияло на твоё состояние?</b>\n"
         "Выбери вариант или напиши свой:",
@@ -88,6 +101,17 @@ async def process_evening_q2(message: types.Message, state: FSMContext, db_sessi
     
     await state.update_data(q2=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_3)
+    
+    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+    diary_service = DiaryEventService(db_session)
+    await diary_service.record_survey_answer(
+        user_id=message.from_user.id,
+        question="Что сильнее всего повлияло на состояние?",
+        answer=answer,
+        survey_type="evening",
+        payload={"question_number": 2},
+    )
+    # =============================================================
     
     await message.answer(
         "3️⃣ <b>Что дало тебе энергию сегодня?</b>\n"
@@ -110,6 +134,17 @@ async def process_evening_q3(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q3=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_4)
     
+    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+    diary_service = DiaryEventService(db_session)
+    await diary_service.record_survey_answer(
+        user_id=message.from_user.id,
+        question="Что дало тебе энергию сегодня?",
+        answer=answer,
+        survey_type="evening",
+        payload={"question_number": 3},
+    )
+    # =============================================================
+    
     await message.answer(
         "4️⃣ <b>Что забрало твои силы сегодня?</b>\n"
         "Выбери вариант или напиши свой:",
@@ -131,6 +166,17 @@ async def process_evening_q4(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q4=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_5)
     
+    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+    diary_service = DiaryEventService(db_session)
+    await diary_service.record_survey_answer(
+        user_id=message.from_user.id,
+        question="Что забрало твои силы сегодня?",
+        answer=answer,
+        survey_type="evening",
+        payload={"question_number": 4},
+    )
+    # =============================================================
+    
     await message.answer(
         "5️⃣ <b>Как прошёл день с точки зрения еды, сна и движения?</b>\n"
         "Выбери вариант или напиши свой:",
@@ -150,6 +196,17 @@ async def process_evening_q5(message: types.Message, state: FSMContext, db_sessi
         return
     
     await state.update_data(q5=answer)
+    
+    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+    diary_service = DiaryEventService(db_session)
+    await diary_service.record_survey_answer(
+        user_id=message.from_user.id,
+        question="Как прошёл день с точки зрения еды, сна и движения?",
+        answer=answer,
+        survey_type="evening",
+        payload={"question_number": 5},
+    )
+    # =============================================================
     
     data = await state.get_data()
     survey_data = {
@@ -183,6 +240,18 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
         return
     
     await state.update_data(clarification=answer)
+    
+    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
+    diary_service = DiaryEventService(db_session)
+    await diary_service.record_survey_answer(
+        user_id=message.from_user.id,
+        question="Что повторялось в состоянии сегодня?",
+        answer=answer,
+        survey_type="evening",
+        payload={"type": "clarification"},
+    )
+    # =============================================================
+    
     await state.set_state(EveningSurveyStates.waiting_for_reminder)
     
     data = await state.get_data()
@@ -221,31 +290,26 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
             analysis = result["analysis"]
             analysis_id = result.get("analysis_id")
             
-            from app.services.access_service import AccessService
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
-            # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
-            user_result = await db_session.execute(
-                select(User).where(User.telegram_id == telegram_id)
+            # ==================== СОХРАНЯЕМ АНАЛИЗ В ДНЕВНИК ====================
+            await diary_service.record_event(
+                user_id=telegram_id,
+                event_type="analysis",
+                source="evening_survey",
+                role="assistant",
+                content=analysis.summary if hasattr(analysis, 'summary') else str(analysis),
+                payload={
+                    "summary": analysis.summary if hasattr(analysis, 'summary') else None,
+                    "micro_action": analysis.micro_action if hasattr(analysis, 'micro_action') else None,
+                    "survey_data": survey_data,
+                },
+                analysis_id=analysis_id,
             )
-            user = user_result.scalar_one_or_none()
+            # ===================================================================
             
-            if user:
-                diary_repo = DiaryRepository(db_session)
-                await diary_repo.save_survey_evening(
-                    user_id=user.id,
-                    answers=survey_data,
-                    analysis_text=analysis.summary if hasattr(analysis, 'summary') else str(analysis),
-                    micro_action=analysis.micro_action if hasattr(analysis, 'micro_action') else None,
-                    summary=analysis.summary if hasattr(analysis, 'summary') else None,
-                    medical_warning=analysis.medical_warning if hasattr(analysis, 'medical_warning') else None,
-                    analysis_id=analysis_id,
-                )
-                logger.info(f"Evening survey saved to diary for user {telegram_id}")
-            # ==============================================================
-            
-            result_text = format_evening_survey_analysis(analysis, survey_data)
+            result_text = _format_evening_survey_analysis(analysis, survey_data)
             
             micro_action = analysis.micro_action or "Попробуй завтра утром сделать 5-минутную зарядку."
             result_text += f"\n\n🌱 <b>Микродействие на завтра:</b>\n{micro_action}\n\n"
@@ -316,7 +380,7 @@ async def evening_callback_actions(callback: CallbackQuery, state: FSMContext):
 
 # ==================== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ====================
 
-def format_evening_survey_analysis(analysis, survey_data: dict) -> str:
+def _format_evening_survey_analysis(analysis, survey_data: dict) -> str:
     """
     Форматирует результат вечернего опроса с двумя подходами.
     """

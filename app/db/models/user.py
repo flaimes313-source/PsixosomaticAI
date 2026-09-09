@@ -18,6 +18,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.db.models.analysis import Analysis
     from app.db.models.diary import DiaryEntry
+    from app.db.models.diary_event import DiaryEvent
 
 
 class User(Base):
@@ -59,31 +60,33 @@ class User(Base):
     
     timezone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="UTC")
 
-    # ==================== НОВЫЕ ПОЛЯ ДЛЯ СЧЁТЧИКОВ ====================
-    # Счётчик для "Что я чувствую в теле" (месячный)
+    # ==================== СЧЁТЧИКИ ====================
     body_analysis_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    body_analysis_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)  # Формат: YYYY-MM
-    
-    # Счётчик для "Помогите разобраться" (месячный)
+    body_analysis_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
     help_analysis_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    help_analysis_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)  # Формат: YYYY-MM
-    
-    # Счётчик для дневника (общий, не сбрасывается)
+    help_analysis_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
     diary_entries_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    # ================================================================
 
-    # Связи
+    # ==================== СВЯЗИ ====================
     analyses: Mapped[List["Analysis"]] = relationship(
         "Analysis",
         back_populates="user",
         cascade="all, delete-orphan",
         order_by="Analysis.created_at.desc()",
     )
+    
     diary_entries: Mapped[List["DiaryEntry"]] = relationship(
         "DiaryEntry",
         back_populates="user",
         cascade="all, delete-orphan",
         order_by="DiaryEntry.created_at.desc()",
+    )
+    
+    diary_events: Mapped[List["DiaryEvent"]] = relationship(
+        "DiaryEvent",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="DiaryEvent.created_at.desc()",
     )
 
     def __repr__(self) -> str:
