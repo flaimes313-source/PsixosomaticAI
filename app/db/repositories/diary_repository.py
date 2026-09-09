@@ -2,7 +2,7 @@
 Репозиторий для работы с DiaryEvent.
 Единый репозиторий для всех событий пользователя.
 """
-from sqlalchemy import select, desc, func, and_, or_
+from sqlalchemy import select, desc, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
@@ -22,7 +22,7 @@ class DiaryRepository:
 
     async def create_event(
         self,
-        user_id: int,
+        user_id: int,  # ← ВНУТРЕННИЙ ID ИЗ USERS
         event_type: str,
         source: Optional[str] = None,
         session_id: Optional[str] = None,
@@ -35,6 +35,7 @@ class DiaryRepository:
     ) -> DiaryEvent:
         """
         Создаёт новое событие в дневнике.
+        user_id - внутренний ID пользователя из таблицы users.
         """
         if session_id is None:
             session_id = str(uuid.uuid4())
@@ -58,10 +59,10 @@ class DiaryRepository:
         await self.session.commit()
         await self.session.refresh(event)
         
-        logger.info(f"DiaryEvent created: id={event.id}, type={event_type}, user={user_id}")
+        logger.info(f"DiaryEvent created: id={event.id}, type={event_type}, user_id={user_id}")
         return event
 
-    # ==================== ПОЛУЧЕНИЕ СОБЫТИЙ ====================
+    # ==================== ОСТАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ ====================
 
     async def get_event(self, event_id: int, user_id: int) -> Optional[DiaryEvent]:
         """Получает событие по ID."""
@@ -80,9 +81,7 @@ class DiaryRepository:
         offset: int = 0,
         event_types: Optional[List[str]] = None,
     ) -> List[DiaryEvent]:
-        """
-        Получает события пользователя с фильтрацией.
-        """
+        """Получает события пользователя с фильтрацией."""
         query = select(DiaryEvent).where(DiaryEvent.user_id == user_id)
         
         if event_types:
@@ -187,8 +186,6 @@ class DiaryRepository:
             .limit(limit)
         )
         return result.scalars().all()
-
-    # ==================== УДАЛЕНИЕ ====================
 
     async def delete_event(self, event_id: int, user_id: int) -> bool:
         """Удаляет событие."""

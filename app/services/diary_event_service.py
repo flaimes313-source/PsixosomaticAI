@@ -5,9 +5,11 @@
 from datetime import date, datetime
 from typing import Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 import uuid
 
 from app.db.repositories.diary_repository import DiaryRepository
+from app.db.models.user import User
 from app.utils.logging import logger
 
 
@@ -21,9 +23,21 @@ class DiaryEventService:
         self.db_session = db_session
         self.repository = DiaryRepository(db_session)
 
+    async def _get_user_id(self, telegram_id: int) -> Optional[int]:
+        """Получает внутренний ID пользователя по telegram_id."""
+        try:
+            result = await self.db_session.execute(
+                select(User.id).where(User.telegram_id == telegram_id)
+            )
+            user_id = result.scalar_one_or_none()
+            return user_id
+        except Exception as e:
+            logger.error(f"Error getting user id for telegram_id {telegram_id}: {e}")
+            return None
+
     async def record_event(
         self,
-        user_id: int,
+        telegram_id: int,
         event_type: str,
         source: Optional[str] = None,
         session_id: Optional[str] = None,
@@ -36,8 +50,16 @@ class DiaryEventService:
     ) -> Optional[int]:
         """
         Единый метод для записи любого события в дневник.
+        Принимает telegram_id и преобразует его в user_id.
         """
         try:
+            # Получаем внутренний user_id
+            user_id = await self._get_user_id(telegram_id)
+            
+            if not user_id:
+                logger.error(f"User not found for telegram_id: {telegram_id}")
+                return None
+            
             if session_id is None:
                 session_id = str(uuid.uuid4())
             
@@ -65,17 +87,15 @@ class DiaryEventService:
 
     async def record_user_message(
         self,
-        user_id: int,
+        telegram_id: int,
         content: str,
         session_id: str,
         source: str = "describe_state",
         payload: Optional[Dict[str, Any]] = None,
     ) -> Optional[int]:
-        """
-        Записывает сообщение пользователя.
-        """
+        """Записывает сообщение пользователя."""
         return await self.record_event(
-            user_id=user_id,
+            telegram_id=telegram_id,
             event_type="describe_user",
             source=source,
             session_id=session_id,
@@ -86,18 +106,16 @@ class DiaryEventService:
 
     async def record_ai_response(
         self,
-        user_id: int,
+        telegram_id: int,
         content: str,
         session_id: str,
         source: str = "describe_state",
         payload: Optional[Dict[str, Any]] = None,
         analysis_id: Optional[int] = None,
     ) -> Optional[int]:
-        """
-        Записывает ответ AI.
-        """
+        """Записывает ответ AI."""
         return await self.record_event(
-            user_id=user_id,
+            telegram_id=telegram_id,
             event_type="describe_ai",
             source=source,
             session_id=session_id,
@@ -109,17 +127,15 @@ class DiaryEventService:
 
     async def record_survey_answer(
         self,
-        user_id: int,
+        telegram_id: int,
         question: str,
         answer: str,
-        survey_type: str,  # morning, day, evening
+        survey_type: str,
         payload: Optional[Dict[str, Any]] = None,
     ) -> Optional[int]:
-        """
-        Записывает ответ на опрос.
-        """
+        """Записывает ответ на опрос."""
         return await self.record_event(
-            user_id=user_id,
+            telegram_id=telegram_id,
             event_type=f"survey_{survey_type}",
             source=f"{survey_type}_survey",
             role="user",
@@ -129,17 +145,15 @@ class DiaryEventService:
 
     async def record_analysis(
         self,
-        user_id: int,
+        telegram_id: int,
         content: str,
         session_id: str,
         payload: Optional[Dict[str, Any]] = None,
         analysis_id: Optional[int] = None,
     ) -> Optional[int]:
-        """
-        Записывает анализ.
-        """
+        """Записывает анализ."""
         return await self.record_event(
-            user_id=user_id,
+            telegram_id=telegram_id,
             event_type="analysis",
             source="describe_state",
             session_id=session_id,
@@ -151,18 +165,16 @@ class DiaryEventService:
 
     async def record_clarification(
         self,
-        user_id: int,
+        telegram_id: int,
         question: str,
         answer: str,
         session_id: str,
         analysis_id: Optional[int] = None,
     ) -> Optional[int]:
-        """
-        Записывает уточняющий вопрос и ответ.
-        """
+        """Записывает уточняющий вопрос и ответ."""
         # Вопрос
         await self.record_event(
-            user_id=user_id,
+            telegram_id=telegram_id,
             event_type="clarification_question",
             source="describe_state",
             session_id=session_id,
@@ -173,7 +185,7 @@ class DiaryEventService:
         
         # Ответ
         return await self.record_event(
-            user_id=user_id,
+            telegram_id=telegram_id,
             event_type="clarification_answer",
             source="describe_state",
             session_id=session_id,
