@@ -16,7 +16,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, date
 from typing import Optional, List, TYPE_CHECKING, Any, Dict
-import uuid
 
 from app.db.base import Base
 
@@ -78,7 +77,6 @@ class DiaryEvent(Base):
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # ==================== СТРУКТУРИРОВАННЫЕ ДАННЫЕ ====================
-    # Используем JSONB для PostgreSQL
     payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSONB,
         nullable=True,
@@ -113,7 +111,7 @@ class DiaryEvent(Base):
 
     # ==================== ИНДЕКСЫ ====================
     __table_args__ = (
-        Index("idx_diary_events_user_created", "user_id", "created_at DESC"),
+        Index("idx_diary_events_user_created", "user_id", "created_at"),
         Index("idx_diary_events_user_date", "user_id", "event_date"),
         Index("idx_diary_events_session", "session_id"),
         Index("idx_diary_events_type", "event_type"),
