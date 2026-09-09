@@ -140,20 +140,22 @@ async def show_history(event: types.Message | CallbackQuery, db_session: AsyncSe
         )
 
 
+# ==================== ИСПРАВЛЕНО: ВОЗВРАТ В ПРОФИЛЬ ====================
+
 @router.callback_query(F.data == "back_to_profile_from_history")
 async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Возврат в профиль из истории."""
     await callback.answer()
     await state.clear()
     
-    from app.bot.handlers.profile import show_profile
+    from app.bot.handlers.profile import show_profile_from_callback  # ← ИСПРАВЛЕНО
     
     try:
         await callback.message.delete()
     except Exception:
         pass
     
-    await show_profile(callback.message, state, db_session)
+    await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО
 
 
 @router.callback_query(F.data == "back_to_menu")

@@ -67,8 +67,6 @@ async def cancel_delete_data(callback: CallbackQuery, state: FSMContext, db_sess
     """Отмена удаления данных."""
     await callback.answer("Удаление отменено")
     
-    # Проверяем, откуда пришли (из профиля или из меню)
-    # По умолчанию возвращаем в меню
     await callback.message.edit_text(
         "⚙️ <b>Настройки</b>\n\n"
         "Удаление данных отменено.",
@@ -85,7 +83,6 @@ async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession
     telegram_id = callback.from_user.id
     
     try:
-        # Находим пользователя
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -99,8 +96,6 @@ async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession
             return
         
         user_id = user.id
-        
-        # ==================== КАСКАДНОЕ УДАЛЕНИЕ ====================
         
         # 1. Удаляем уточнения (Clarification)
         result_clarifications = await db_session.execute(
@@ -175,8 +170,6 @@ async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession
         )
 
 
-# ==================== ВОЗВРАТ В ГЛАВНОЕ МЕНЮ ====================
-
 @router.callback_query(F.data == "back_to_menu_from_settings")
 async def back_to_menu_from_settings(callback: CallbackQuery, state: FSMContext):
     """Возврат в главное меню из настроек."""
@@ -190,7 +183,7 @@ async def back_to_menu_from_settings(callback: CallbackQuery, state: FSMContext)
     )
 
 
-# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
+# ==================== ИСПРАВЛЕНО: ВОЗВРАТ В ПРОФИЛЬ ====================
 
 @router.callback_query(F.data == "settings_back_to_profile")
 async def back_to_profile_from_settings(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -198,7 +191,7 @@ async def back_to_profile_from_settings(callback: CallbackQuery, state: FSMConte
     await callback.answer()
     await state.clear()
     
-    from app.bot.handlers.profile import show_profile
+    from app.bot.handlers.profile import show_profile_from_callback  # ← ИСПРАВЛЕНО
     
     await callback.message.delete()
-    await show_profile(callback.message, state, db_session)
+    await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО

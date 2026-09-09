@@ -36,7 +36,6 @@ async def show_pro_menu(message: types.Message, state: FSMContext, db_session: A
     access_service = AccessService(db_session)
     is_pro = await access_service.is_pro(user_id)   # нужно для клавиатуры
     
-    # НОВЫЙ ТЕКСТ согласно вашему описанию
     text = (
     "⭐ <b>Сома. PRO</b>\n\n"
     
@@ -83,7 +82,6 @@ async def show_pro_from_profile(message: types.Message, state: FSMContext, db_se
     access_service = AccessService(db_session)
     is_pro = await access_service.is_pro(user_id)   # для клавиатуры
     
-    # Тот же новый текст
     text = (
         "⭐ <b>Сома. PRO</b>\n\n"
         "🔓 <b>Бесплатный тариф</b>\n"
@@ -112,12 +110,9 @@ async def show_pro_from_profile(message: types.Message, state: FSMContext, db_se
 
 @router.callback_query(F.data == "pro_features")
 async def show_pro_features(callback: CallbackQuery, db_session: AsyncSession):
-    """Показывает подробности Сома. PRO (теперь используется тот же текст, что в меню)."""
+    """Показывает подробности Сома. PRO."""
     await callback.answer()
     
-    # Для клавиатуры определяем статус (можно использовать get_pro_features_keyboard, но там может быть другая клавиатура)
-    # Оставляем вызов get_pro_features_keyboard() без изменений, он, вероятно, содержит кнопку "Назад" и т.п.
-    # Текст меняем на новый
     text = (
         "⭐ <b>Сома. PRO</b>\n\n"
         "🔓 <b>Бесплатный тариф</b>\n"
@@ -302,7 +297,6 @@ async def back_to_pro_menu(callback: CallbackQuery, db_session: AsyncSession):
     access_service = AccessService(db_session)
     is_pro = await access_service.is_pro(user_id)   # для клавиатуры
     
-    # Обновлённый текст (такой же, как в основном меню)
     text = (
         "⭐ <b>Сома. PRO</b>\n\n"
         "🔓 <b>Бесплатный тариф</b>\n"
@@ -373,7 +367,7 @@ async def show_payments_history(callback: CallbackQuery, db_session: AsyncSessio
     )
 
 
-# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
+# ==================== ИСПРАВЛЕНО: ВОЗВРАТ В ПРОФИЛЬ ====================
 
 @router.callback_query(F.data == "pro_back_to_profile")
 async def back_to_profile_from_pro(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -381,7 +375,7 @@ async def back_to_profile_from_pro(callback: CallbackQuery, state: FSMContext, d
     await callback.answer()
     await state.clear()
     
-    from app.bot.handlers.profile import show_profile
+    from app.bot.handlers.profile import show_profile_from_callback  # ← ИСПРАВЛЕНО
     
     await callback.message.delete()
-    await show_profile(callback.message, state, db_session)
+    await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО

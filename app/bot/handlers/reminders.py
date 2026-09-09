@@ -297,8 +297,6 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
     )
 
 
-# ==================== ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ОТКЛЮЧЕНИЯ ====================
-
 @router.callback_query(F.data == "reminders_disable")
 async def disable_reminders(callback: CallbackQuery, db_session: AsyncSession):
     """Отключает напоминания."""
@@ -309,7 +307,6 @@ async def disable_reminders(callback: CallbackQuery, db_session: AsyncSession):
         reminder_repo = ReminderRepository(db_session)
         await reminder_repo.update(telegram_id, enabled=False)
         
-        # Обновляем текущее сообщение
         await callback.message.edit_text(
             "🔕 <b>Напоминания отключены</b>\n\n"
             "Ты больше не будешь получать напоминания о дневнике.\n\n"
@@ -362,16 +359,16 @@ async def close_reminders(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
+# ==================== ИСПРАВЛЕНО: ВОЗВРАТ В ПРОФИЛЬ ====================
 
 @router.callback_query(F.data == "reminders_back_to_profile")
 async def back_to_profile_from_reminders(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     await callback.answer()
     await state.clear()
     
-    from app.bot.handlers.profile import show_profile
+    from app.bot.handlers.profile import show_profile_from_callback  # ← ИСПРАВЛЕНО
     await callback.message.delete()
-    await show_profile(callback.message, state, db_session)
+    await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО
 
 
 # ==================== ОБРАБОТЧИК ДЛЯ КНОПКИ "ЗАПОЛНИТЬ ДНЕВНИК" ====================

@@ -223,7 +223,7 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
     
     if action == "back_to_profile":
         await callback.message.delete()
-        await show_profile(callback.message, state, db_session)
+        await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО
         return
     
     if action == "back_to_menu":
@@ -312,9 +312,9 @@ async def back_to_profile_generic(callback: CallbackQuery, state: FSMContext, db
     if db_session is None:
         from app.db.database import AsyncSessionLocal
         async with AsyncSessionLocal() as new_session:
-            await show_profile(callback.message, state, new_session)
+            await show_profile_from_callback(callback, state, new_session)  # ← ИСПРАВЛЕНО
     else:
-        await show_profile(callback.message, state, db_session)
+        await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО
 
 
 @router.callback_query(F.data == "history_back_to_profile")
@@ -327,6 +327,6 @@ async def history_back_to_profile(callback: CallbackQuery, state: FSMContext, db
     if db_session is None:
         from app.db.database import AsyncSessionLocal
         async with AsyncSessionLocal() as new_session:
-            await show_profile(callback.message, state, new_session)
+            await show_profile_from_callback(callback, state, new_session)  # ← ИСПРАВЛЕНО
     else:
-        await show_profile(callback.message, state, db_session)
+        await show_profile_from_callback(callback, state, db_session)  # ← ИСПРАВЛЕНО
