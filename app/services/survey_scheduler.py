@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select, and_, or_
 
 from app.db.models.user import User
-from app.db.models.reminder import ReminderSettings
 from app.utils.logging import logger
 
 
@@ -78,50 +77,22 @@ class SurveyScheduler:
                 await asyncio.sleep(60)
 
     async def _check_and_send_surveys(self):
-        """Проверяет время и отправляет опросы пользователям."""
+        """
+        Проверяет время у КАЖДОГО пользователя и отправляет опросы.
+        Больше НЕ проверяем серверный час — проверяем локальное время каждого пользователя.
+        """
         now = datetime.now()
-        current_hour = now.hour
         current_minute = now.minute
         
-        # ==================== ЛОГИРОВАНИЕ ====================
-        logger.info(f"⏰ Survey tick: {now.strftime('%H:%M:%S')} (hour={current_hour}, minute={current_minute})")
-        # ======================================================
+        logger.info(f"⏰ Survey tick: {now.strftime('%H:%M:%S')}")
         
-        # Проверяем только в начале каждой минуты (00-05 секунд)
-        if current_minute == 0:
-            # Утренний опрос (8:00)
-            if current_hour == self.MORNING_HOUR:
-                logger.info(f"🌅 Morning hour detected: {current_hour}")
-                await self._send_morning_surveys()
-            
-            # Дневной опрос (13:00)
-            if current_hour == self.DAY_HOUR:
-                logger.info(f"☀️ Day hour detected: {current_hour}")
-                await self._send_day_surveys()
-            
-            # Вечерний опрос (20:00)
-            if current_hour == self.EVENING_HOUR:
-                logger.info(f"🌆 Evening hour detected: {current_hour}")
-                await self._send_evening_surveys()
+        # Проверяем каждую минуту
+        # (но отправляем только если у пользователя ровно 8:00, 13:00 или 20:00)
+        await self._send_surveys_to_users()
 
-    async def _send_morning_surveys(self):
-        """Отправляет утренние опросы."""
-        logger.info("🌅 Sending morning surveys...")
-        await self._send_survey_to_users("morning", self.MORNING_HOUR)
-
-    async def _send_day_surveys(self):
-        """Отправляет дневные опросы."""
-        logger.info("☀️ Sending day surveys...")
-        await self._send_survey_to_users("day", self.DAY_HOUR)
-
-    async def _send_evening_surveys(self):
-        """Отправляет вечерние опросы."""
-        logger.info("🌆 Sending evening surveys...")
-        await self._send_survey_to_users("evening", self.EVENING_HOUR)
-
-    async def _send_survey_to_users(self, survey_type: str, target_hour: int):
+    async def _send_surveys_to_users(self):
         """
-        Отправляет опрос пользователям, у которых сейчас target_hour по их часовому поясу.
+        Отправляет опросы пользователям, у которых сейчас нужное локальное время.
         """
         try:
             async with self.session_maker() as session:
@@ -134,57 +105,66 @@ class SurveyScheduler:
                 )
                 users = result.scalars().all()
                 
-                logger.info(f"📋 Checking {len(users)} users for {survey_type} survey")
+                logger.info(f"📋 Checking {len(users)} users")
                 
-                sent_count = 0
+                morning_sent = 0
+                day_sent = 0
+                evening_sent = 0
+                
                 for user in users:
-                    # Проверяем, должен ли пользователь получить опрос
-                    if await self._should_send_survey_to_user(user, target_hour):
-                        # Проверяем, не отправляли ли уже в этом часе
-                        if await self._is_already_sent(user.telegram_id, survey_type):
-                            continue
+                    # Получаем локальное время пользователя
+                    try:
+                        tz_str = user.timezone or "UTC"
+                        try:
+                            tz = ZoneInfo(tz_str)
+                        except Exception:
+                            tz = ZoneInfo("UTC")
                         
-                        await self._send_survey_to_user(user, survey_type)
-                        sent_count += 1
-                        await asyncio.sleep(0.2)  # Задержка между отправками
+                        user_now = datetime.now(tz)
+                        user_hour = user_now.hour
+                        user_minute = user_now.minute
+                    except Exception as e:
+                        logger.error(f"Error getting user timezone {user.telegram_id}: {e}")
+                        continue
+                    
+                    # ==================== ЛОГИРОВАНИЕ ====================
+                    logger.info(
+                        f"👤 User {user.telegram_id}: tz={tz_str}, "
+                        f"local_time={user_now.strftime('%H:%M')}"
+                    )
+                    # ======================================================
+                    
+                    # Проверяем каждое время опроса
+                    # Утренний (8:00)
+                    if user_hour == self.MORNING_HOUR and user_minute == 0:
+                        if not await self._is_already_sent(user.telegram_id, "morning"):
+                            await self._send_survey_to_user(user, "morning")
+                            morning_sent += 1
+                            await asyncio.sleep(0.2)
+                    
+                    # Дневной (13:00)
+                    elif user_hour == self.DAY_HOUR and user_minute == 0:
+                        if not await self._is_already_sent(user.telegram_id, "day"):
+                            await self._send_survey_to_user(user, "day")
+                            day_sent += 1
+                            await asyncio.sleep(0.2)
+                    
+                    # Вечерний (20:00)
+                    elif user_hour == self.EVENING_HOUR and user_minute == 0:
+                        if not await self._is_already_sent(user.telegram_id, "evening"):
+                            await self._send_survey_to_user(user, "evening")
+                            evening_sent += 1
+                            await asyncio.sleep(0.2)
                 
-                logger.info(f"✅ {survey_type} survey sent to {sent_count} users")
+                if morning_sent > 0:
+                    logger.info(f"✅ Morning surveys sent: {morning_sent}")
+                if day_sent > 0:
+                    logger.info(f"✅ Day surveys sent: {day_sent}")
+                if evening_sent > 0:
+                    logger.info(f"✅ Evening surveys sent: {evening_sent}")
                     
         except Exception as e:
-            logger.error(f"Error sending {survey_type} surveys: {e}")
-
-    async def _should_send_survey_to_user(self, user: User, target_hour: int) -> bool:
-        """
-        Проверяет, должен ли пользователь получить опрос в данный момент.
-        """
-        try:
-            # Получаем часовой пояс пользователя
-            tz_str = user.timezone or "UTC"
-            try:
-                tz = ZoneInfo(tz_str)
-            except Exception:
-                tz = ZoneInfo("UTC")
-            
-            # Текущее время в часовом поясе пользователя
-            now = datetime.now(tz)
-            current_hour = now.hour
-            current_minute = now.minute
-            
-            # ==================== ЛОГИРОВАНИЕ ====================
-            logger.info(
-                f"👤 User {user.telegram_id}: tz={tz_str}, "
-                f"local_time={now.strftime('%H:%M')}, "
-                f"target={target_hour}, "
-                f"match={current_hour == target_hour and current_minute == 0}"
-            )
-            # ======================================================
-            
-            # Проверяем, совпадает ли час (и минута = 0)
-            return current_hour == target_hour and current_minute == 0
-            
-        except Exception as e:
-            logger.error(f"Error checking timezone for user {user.telegram_id}: {e}")
-            return False
+            logger.error(f"Error sending surveys: {e}")
 
     async def _is_already_sent(self, telegram_id: int, survey_type: str) -> bool:
         """Проверяет, не отправляли ли уже опрос в этом часе."""
