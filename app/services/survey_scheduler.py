@@ -64,6 +64,7 @@ class SurveyScheduler:
 
     async def _run(self):
         """Основной цикл шедулера."""
+        logger.info("🔄 SurveyScheduler loop started")
         while self._running:
             try:
                 # Проверяем каждую минуту (60 секунд)
@@ -82,18 +83,25 @@ class SurveyScheduler:
         current_hour = now.hour
         current_minute = now.minute
         
+        # ==================== ЛОГИРОВАНИЕ ====================
+        logger.info(f"⏰ Survey tick: {now.strftime('%H:%M:%S')} (hour={current_hour}, minute={current_minute})")
+        # ======================================================
+        
         # Проверяем только в начале каждой минуты (00-05 секунд)
         if current_minute == 0:
             # Утренний опрос (8:00)
             if current_hour == self.MORNING_HOUR:
+                logger.info(f"🌅 Morning hour detected: {current_hour}")
                 await self._send_morning_surveys()
             
             # Дневной опрос (13:00)
             if current_hour == self.DAY_HOUR:
+                logger.info(f"☀️ Day hour detected: {current_hour}")
                 await self._send_day_surveys()
             
             # Вечерний опрос (20:00)
             if current_hour == self.EVENING_HOUR:
+                logger.info(f"🌆 Evening hour detected: {current_hour}")
                 await self._send_evening_surveys()
 
     async def _send_morning_surveys(self):
@@ -126,7 +134,7 @@ class SurveyScheduler:
                 )
                 users = result.scalars().all()
                 
-                logger.info(f"Checking {len(users)} users for {survey_type} survey")
+                logger.info(f"📋 Checking {len(users)} users for {survey_type} survey")
                 
                 sent_count = 0
                 for user in users:
@@ -140,7 +148,7 @@ class SurveyScheduler:
                         sent_count += 1
                         await asyncio.sleep(0.2)  # Задержка между отправками
                 
-                logger.info(f"{survey_type} survey sent to {sent_count} users")
+                logger.info(f"✅ {survey_type} survey sent to {sent_count} users")
                     
         except Exception as e:
             logger.error(f"Error sending {survey_type} surveys: {e}")
@@ -161,6 +169,15 @@ class SurveyScheduler:
             now = datetime.now(tz)
             current_hour = now.hour
             current_minute = now.minute
+            
+            # ==================== ЛОГИРОВАНИЕ ====================
+            logger.info(
+                f"👤 User {user.telegram_id}: tz={tz_str}, "
+                f"local_time={now.strftime('%H:%M')}, "
+                f"target={target_hour}, "
+                f"match={current_hour == target_hour and current_minute == 0}"
+            )
+            # ======================================================
             
             # Проверяем, совпадает ли час (и минута = 0)
             return current_hour == target_hour and current_minute == 0
