@@ -27,6 +27,7 @@ from app.bot.handlers import (
     how_it_works_handler,
     describe_state_handler,
     diary_handler,
+    survey_launcher,  # ← ДОБАВЛЕНО
 )
 from app.bot.handlers.surveys import morning as morning_survey_handler
 from app.bot.handlers.surveys import day as day_survey_handler
@@ -86,6 +87,7 @@ async def main() -> None:
     dp.include_router(morning_survey_handler.router)
     dp.include_router(day_survey_handler.router)
     dp.include_router(evening_survey_handler.router)
+    dp.include_router(survey_launcher.router)  # ← ДОБАВЛЕНО
     dp.include_router(cancel.router)
     dp.include_router(history.router)
     dp.include_router(errors_router)
