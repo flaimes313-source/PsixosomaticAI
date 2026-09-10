@@ -1,7 +1,10 @@
 """
 Инициализация репозиториев.
 """
-from .user import UserRepository
 from .analysis import AnalysisRepository
 from .clarification import ClarificationRepository
-from .diary import DiaryRepository
+from .user import UserRepository
+from .subscription import SubscriptionRepository
+from .reminder import ReminderRepository
+from .payment import PaymentRepository
+from .diary_repository import DiaryRepository  # ← НОВЫЙ (DiaryEvent)

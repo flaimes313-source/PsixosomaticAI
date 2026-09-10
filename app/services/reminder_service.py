@@ -2,13 +2,14 @@
 Сервис для управления напоминаниями и их отправки.
 """
 import asyncio
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, date
 from typing import Optional, List
 from zoneinfo import ZoneInfo
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.repositories.reminder import ReminderRepository
-from app.db.repositories.diary import DiaryRepository
+from app.db.repositories.diary_repository import DiaryRepository
 from app.db.models.user import User
 from app.utils.logging import logger
 
@@ -91,10 +92,7 @@ class ReminderService:
 
     async def _send_reminder(self, user_id: int, session: AsyncSession):
         try:
-            diary_repo = DiaryRepository(session)
-            today_entries = await diary_repo.get_today_entries(user_id)
-
-            from sqlalchemy import select
+            # ==================== ИСПРАВЛЕНО: получаем пользователя ====================
             result = await session.execute(
                 select(User).where(User.telegram_id == user_id)
             )
@@ -103,8 +101,16 @@ class ReminderService:
             if not user:
                 logger.warning(f"User {user_id} not found for reminder")
                 return
+            # ==========================================================================
 
-            if today_entries:
+            # ==================== ИСПРАВЛЕНО: используем новый DiaryRepository =========
+            diary_repo = DiaryRepository(session)
+            today = date.today()
+            # Получаем события за сегодня (внутренний ID пользователя)
+            today_events = await diary_repo.get_events_by_date(user.id, today)
+            # ==========================================================================
+
+            if today_events:
                 message = (
                     "📔 <b>Дневник</b>\n\n"
                     "Ты уже отметил состояние сегодня. 👀\n"
