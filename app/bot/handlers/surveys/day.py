@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import uuid
 
 from app.bot.states import DaySurveyStates
 from app.bot.keyboards.surveys import (
@@ -26,10 +27,11 @@ router = Router()
 
 @router.message(F.text == "☀️ Дневной опрос")
 async def start_day_survey(message: types.Message, state: FSMContext, db_session: AsyncSession = None):
-    """
-    Запускает дневной опрос.
-    """
+    """Запускает дневной опрос."""
     await state.clear()
+    
+    session_id = str(uuid.uuid4())
+    await state.update_data(session_id=session_id)
     
     await message.answer(
         "☀️ <b>Добрый день!</b>\n\n"
@@ -48,12 +50,12 @@ async def start_day_survey(message: types.Message, state: FSMContext, db_session
         reply_markup=get_day_question_1_keyboard(),
         parse_mode="HTML",
     )
-    logger.info(f"Day survey started: user={message.from_user.id}")
+    logger.info(f"Day survey started: user={message.from_user.id}, session={session_id}")
 
 
 @router.message(DaySurveyStates.waiting_for_question_1, F.text)
 async def process_day_q1(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 1: Как ты сейчас?"""
+    """Обработка вопроса 1."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -61,19 +63,21 @@ async def process_day_q1(message: types.Message, state: FSMContext, db_session: 
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q1=answer)
     await state.set_state(DaySurveyStates.waiting_for_question_2)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
         question="Как ты сейчас себя чувствуешь?",
         answer=answer,
         survey_type="day",
+        session_id=session_id,
         payload={"question_number": 1},
     )
-    # =============================================================
     
     await message.answer(
         "2️⃣ <b>Что изменилось с утра?</b>\n"
@@ -85,7 +89,7 @@ async def process_day_q1(message: types.Message, state: FSMContext, db_session: 
 
 @router.message(DaySurveyStates.waiting_for_question_2, F.text)
 async def process_day_q2(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 2: Что изменилось с утра?"""
+    """Обработка вопроса 2."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -93,19 +97,21 @@ async def process_day_q2(message: types.Message, state: FSMContext, db_session: 
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q2=answer)
     await state.set_state(DaySurveyStates.waiting_for_question_3)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
         question="Что изменилось с утра?",
         answer=answer,
         survey_type="day",
+        session_id=session_id,
         payload={"question_number": 2},
     )
-    # =============================================================
     
     await message.answer(
         "3️⃣ <b>Что повлияло на твоё состояние?</b>\n"
@@ -117,7 +123,7 @@ async def process_day_q2(message: types.Message, state: FSMContext, db_session: 
 
 @router.message(DaySurveyStates.waiting_for_question_3, F.text)
 async def process_day_q3(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 3: Что повлияло?"""
+    """Обработка вопроса 3."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -125,18 +131,20 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q3=answer)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
         question="Что повлияло на твоё состояние?",
         answer=answer,
         survey_type="day",
+        session_id=session_id,
         payload={"question_number": 3},
     )
-    # =============================================================
     
     data = await state.get_data()
     survey_data = {
@@ -145,7 +153,6 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
         "q3": answer,
     }
     
-    # Формируем поддерживающий ответ
     support_text = "☀️ <b>Спасибо за ответы!</b>\n\n"
     support_text += f"📊 <b>Краткая сводка:</b>\n"
     support_text += f"• Состояние: {survey_data.get('q1', 'Не указано')}\n"
@@ -159,22 +166,21 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
             "Это нормально — чувствовать усталость или тревогу в течение дня. "
             "Ты уже делаешь важный шаг — замечаешь своё состояние.\n\n"
             "🌱 <b>Маленькое действие:</b>\n"
-            "Попробуй сделать 3 глубоких вдоха и выдоха прямо сейчас. "
-            "Это поможет вернуть фокус."
+            "Попробуй сделать 3 глубоких вдоха и выдоха прямо сейчас."
         )
     elif 'хорошо' in state_text or 'нормально' in state_text:
         support_text += (
             "🧠 <b>Поддержка:</b>\n"
             "Отлично! Ты в хорошем состоянии. Это хороший знак.\n\n"
             "🌱 <b>Маленькое действие:</b>\n"
-            "Продолжай в том же духе. Не забывай делать небольшие паузы в течение дня."
+            "Продолжай в том же духе."
         )
     else:
         support_text += (
             "🧠 <b>Поддержка:</b>\n"
             "Спасибо, что поделился. Ты молодец, что отслеживаешь своё состояние.\n\n"
             "🌱 <b>Маленькое действие:</b>\n"
-            "Сделай небольшой перерыв — выпей воды или пройдись по комнате."
+            "Сделай небольшой перерыв."
         )
     
     support_text += "\n\n✅ Все ответы сохранены в дневник."

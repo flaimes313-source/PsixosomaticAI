@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import uuid
 
 from app.bot.states import MorningSurveyStates
 from app.bot.keyboards.surveys import (
@@ -50,6 +51,10 @@ async def start_morning_survey(message: types.Message, state: FSMContext, db_ses
     """Запускает утренний опрос."""
     await state.clear()
     
+    # Создаём session_id для группировки
+    session_id = str(uuid.uuid4())
+    await state.update_data(session_id=session_id)
+    
     affirmation = get_next_affirmation()
     await message.answer(
         f"🌅 <b>Доброе утро!</b>\n\n"
@@ -69,7 +74,7 @@ async def start_morning_survey(message: types.Message, state: FSMContext, db_ses
         reply_markup=get_morning_question_1_keyboard(),
         parse_mode="HTML",
     )
-    logger.info(f"Morning survey started: user={message.from_user.id}")
+    logger.info(f"Morning survey started: user={message.from_user.id}, session={session_id}")
 
 
 @router.message(MorningSurveyStates.waiting_for_question_1, F.text)
@@ -82,6 +87,9 @@ async def process_morning_q1(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q1=answer)
     await state.set_state(MorningSurveyStates.waiting_for_question_2)
     
@@ -91,6 +99,7 @@ async def process_morning_q1(message: types.Message, state: FSMContext, db_sessi
         question="Как ты проснулся?",
         answer=answer,
         survey_type="morning",
+        session_id=session_id,
         payload={"question_number": 1},
     )
     
@@ -112,6 +121,9 @@ async def process_morning_q2(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q2=answer)
     await state.set_state(MorningSurveyStates.waiting_for_question_3)
     
@@ -121,6 +133,7 @@ async def process_morning_q2(message: types.Message, state: FSMContext, db_sessi
         question="Что сейчас чувствуешь в теле?",
         answer=answer,
         survey_type="morning",
+        session_id=session_id,
         payload={"question_number": 2},
     )
     
@@ -142,6 +155,9 @@ async def process_morning_q3(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q3=answer)
     await state.set_state(MorningSurveyStates.waiting_for_question_4)
     
@@ -151,6 +167,7 @@ async def process_morning_q3(message: types.Message, state: FSMContext, db_sessi
         question="Какое у тебя настроение?",
         answer=answer,
         survey_type="morning",
+        session_id=session_id,
         payload={"question_number": 3},
     )
     
@@ -172,6 +189,9 @@ async def process_morning_q4(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q4=answer)
     await state.set_state(MorningSurveyStates.waiting_for_question_5)
     
@@ -181,6 +201,7 @@ async def process_morning_q4(message: types.Message, state: FSMContext, db_sessi
         question="Что сейчас в мыслях?",
         answer=answer,
         survey_type="morning",
+        session_id=session_id,
         payload={"question_number": 4},
     )
     
@@ -202,6 +223,9 @@ async def process_morning_q5(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q5=answer)
     
     diary_service = DiaryEventService(db_session)
@@ -210,6 +234,7 @@ async def process_morning_q5(message: types.Message, state: FSMContext, db_sessi
         question="Как спал прошлой ночью?",
         answer=answer,
         survey_type="morning",
+        session_id=session_id,
         payload={"question_number": 5},
     )
     
@@ -244,6 +269,9 @@ async def process_morning_clarification(message: types.Message, state: FSMContex
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(clarification=answer)
     await state.set_state(MorningSurveyStates.waiting_for_reminder)
     
@@ -253,6 +281,7 @@ async def process_morning_clarification(message: types.Message, state: FSMContex
         question="Где именно напряжение/дискомфорт?",
         answer=answer,
         survey_type="morning",
+        session_id=session_id,
         payload={"type": "clarification"},
     )
     
@@ -274,6 +303,9 @@ async def process_morning_second_clarification(message: types.Message, state: FS
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(second_clarification=answer)
     
     diary_service = DiaryEventService(db_session)
@@ -282,6 +314,7 @@ async def process_morning_second_clarification(message: types.Message, state: FS
         question="Что сильнее всего влияет на состояние?",
         answer=answer,
         survey_type="morning",
+        session_id=session_id,
         payload={"type": "clarification_2"},
     )
     
@@ -327,11 +360,11 @@ async def process_morning_second_clarification(message: types.Message, state: FS
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
-            # Сохраняем анализ в DiaryEvent
             await diary_service.record_event(
                 telegram_id=telegram_id,
                 event_type="analysis",
                 source="morning_survey",
+                session_id=session_id,
                 role="assistant",
                 content=analysis.summary if hasattr(analysis, 'summary') else str(analysis),
                 payload={

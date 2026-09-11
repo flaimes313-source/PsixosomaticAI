@@ -53,7 +53,6 @@ class DiaryEventService:
         Принимает telegram_id и преобразует его в user_id.
         """
         try:
-            # Получаем внутренний user_id
             user_id = await self._get_user_id(telegram_id)
             
             if not user_id:
@@ -131,6 +130,7 @@ class DiaryEventService:
         question: str,
         answer: str,
         survey_type: str,
+        session_id: Optional[str] = None,
         payload: Optional[Dict[str, Any]] = None,
     ) -> Optional[int]:
         """Записывает ответ на опрос."""
@@ -138,6 +138,7 @@ class DiaryEventService:
             telegram_id=telegram_id,
             event_type=f"survey_{survey_type}",
             source=f"{survey_type}_survey",
+            session_id=session_id,
             role="user",
             content=answer,
             payload=payload or {"question": question},
@@ -172,7 +173,6 @@ class DiaryEventService:
         analysis_id: Optional[int] = None,
     ) -> Optional[int]:
         """Записывает уточняющий вопрос и ответ."""
-        # Вопрос
         await self.record_event(
             telegram_id=telegram_id,
             event_type="clarification_question",
@@ -183,7 +183,6 @@ class DiaryEventService:
             analysis_id=analysis_id,
         )
         
-        # Ответ
         return await self.record_event(
             telegram_id=telegram_id,
             event_type="clarification_answer",

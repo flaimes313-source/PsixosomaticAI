@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+import uuid
 
 from app.bot.states import EveningSurveyStates
 from app.bot.keyboards.surveys import (
@@ -31,10 +32,11 @@ router = Router()
 
 @router.message(F.text == "🌆 Вечерний опрос")
 async def start_evening_survey(message: types.Message, state: FSMContext, db_session: AsyncSession = None):
-    """
-    Запускает вечерний опрос.
-    """
+    """Запускает вечерний опрос."""
     await state.clear()
+    
+    session_id = str(uuid.uuid4())
+    await state.update_data(session_id=session_id)
     
     await message.answer(
         "🌆 <b>Добрый вечер!</b>\n\n"
@@ -53,12 +55,12 @@ async def start_evening_survey(message: types.Message, state: FSMContext, db_ses
         reply_markup=get_evening_question_1_keyboard(),
         parse_mode="HTML",
     )
-    logger.info(f"Evening survey started: user={message.from_user.id}")
+    logger.info(f"Evening survey started: user={message.from_user.id}, session={session_id}")
 
 
 @router.message(EveningSurveyStates.waiting_for_question_1, F.text)
 async def process_evening_q1(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 1: Как себя чувствуешь?"""
+    """Обработка вопроса 1."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -66,19 +68,21 @@ async def process_evening_q1(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q1=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_2)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
         question="Как ты сейчас себя чувствуешь?",
         answer=answer,
         survey_type="evening",
+        session_id=session_id,
         payload={"question_number": 1},
     )
-    # =============================================================
     
     await message.answer(
         "2️⃣ <b>Что сегодня сильнее всего повлияло на твоё состояние?</b>\n"
@@ -90,7 +94,7 @@ async def process_evening_q1(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(EveningSurveyStates.waiting_for_question_2, F.text)
 async def process_evening_q2(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 2: Что повлияло?"""
+    """Обработка вопроса 2."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -98,19 +102,21 @@ async def process_evening_q2(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q2=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_3)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
         question="Что сильнее всего повлияло на состояние?",
         answer=answer,
         survey_type="evening",
+        session_id=session_id,
         payload={"question_number": 2},
     )
-    # =============================================================
     
     await message.answer(
         "3️⃣ <b>Что дало тебе энергию сегодня?</b>\n"
@@ -122,7 +128,7 @@ async def process_evening_q2(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(EveningSurveyStates.waiting_for_question_3, F.text)
 async def process_evening_q3(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 3: Что дало энергию?"""
+    """Обработка вопроса 3."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -130,19 +136,21 @@ async def process_evening_q3(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q3=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_4)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
         question="Что дало тебе энергию сегодня?",
         answer=answer,
         survey_type="evening",
+        session_id=session_id,
         payload={"question_number": 3},
     )
-    # =============================================================
     
     await message.answer(
         "4️⃣ <b>Что забрало твои силы сегодня?</b>\n"
@@ -154,7 +162,7 @@ async def process_evening_q3(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(EveningSurveyStates.waiting_for_question_4, F.text)
 async def process_evening_q4(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 4: Что забрало силы?"""
+    """Обработка вопроса 4."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -162,19 +170,21 @@ async def process_evening_q4(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q4=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_5)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
         question="Что забрало твои силы сегодня?",
         answer=answer,
         survey_type="evening",
+        session_id=session_id,
         payload={"question_number": 4},
     )
-    # =============================================================
     
     await message.answer(
         "5️⃣ <b>Как прошёл день с точки зрения еды, сна и движения?</b>\n"
@@ -186,7 +196,7 @@ async def process_evening_q4(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(EveningSurveyStates.waiting_for_question_5, F.text)
 async def process_evening_q5(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 5: Как с едой, сном, движением?"""
+    """Обработка вопроса 5."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -194,18 +204,20 @@ async def process_evening_q5(message: types.Message, state: FSMContext, db_sessi
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(q5=answer)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
         question="Как прошёл день с точки зрения еды, сна и движения?",
         answer=answer,
         survey_type="evening",
+        session_id=session_id,
         payload={"question_number": 5},
     )
-    # =============================================================
     
     data = await state.get_data()
     survey_data = {
@@ -238,18 +250,20 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
         await message.answer("❌ Опрос отменён.", reply_markup=get_main_menu_keyboard())
         return
     
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    
     await state.update_data(clarification=answer)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
         question="Что повторялось в состоянии сегодня?",
         answer=answer,
         survey_type="evening",
+        session_id=session_id,
         payload={"type": "clarification"},
     )
-    # =============================================================
     
     await state.set_state(EveningSurveyStates.waiting_for_reminder)
     
@@ -292,11 +306,11 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
-            # ==================== СОХРАНЯЕМ АНАЛИЗ В ДНЕВНИК ====================
             await diary_service.record_event(
                 telegram_id=telegram_id,
                 event_type="analysis",
                 source="evening_survey",
+                session_id=session_id,
                 role="assistant",
                 content=analysis.summary if hasattr(analysis, 'summary') else str(analysis),
                 payload={
@@ -306,7 +320,6 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
                 },
                 analysis_id=analysis_id,
             )
-            # ===================================================================
             
             result_text = _format_evening_survey_analysis(analysis, survey_data)
             
@@ -386,9 +399,7 @@ async def evening_callback_actions(callback: CallbackQuery, state: FSMContext):
 # ==================== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ====================
 
 def _format_evening_survey_analysis(analysis, survey_data: dict) -> str:
-    """
-    Форматирует результат вечернего опроса с двумя подходами.
-    """
+    """Форматирует результат вечернего опроса с двумя подходами."""
     text = f"🌆 <b>Итоги дня</b>\n\n"
     
     text += f"📊 <b>Краткая сводка</b>\n"
@@ -417,15 +428,14 @@ def _format_evening_survey_analysis(analysis, survey_data: dict) -> str:
     
     energy_source = survey_data.get('q3', '')
     if 'общение' in energy_source.lower():
-        text += "• Общение может быть источником энергии, если оно приносит радость и поддержку.\n"
+        text += "• Общение может быть источником энергии.\n"
     if 'еда' in energy_source.lower():
-        text += "• Еда — не только топливо, но и эмоциональный ресурс. Обрати внимание на качество питания.\n"
-    text += "Важно: это возможная интерпретация для самонаблюдения, а не диагноз.\n\n"
+        text += "• Еда — не только топливо, но и эмоциональный ресурс.\n"
+    text += "Важно: это возможная интерпретация для самонаблюдения.\n\n"
     
     text += "🔬 <b>Современный подход</b>\n"
     text += "Современные исследования показывают, что вечернее состояние связано с накопленным стрессом "
-    text += "и качеством восстановления. Регулярное наблюдение помогает снижать тревогу "
-    text += "и повышать осознанность.\n"
+    text += "и качеством восстановления.\n"
     
     if analysis.check_question:
         text += f"\n❓ <b>Вопрос для самопроверки:</b>\n{analysis.check_question}\n"

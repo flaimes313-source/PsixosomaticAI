@@ -27,49 +27,23 @@ def get_user_timezone(user) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
-def format_event_for_history(event, user_tz) -> str:
-    """Форматирует событие для истории (кратко)."""
-    time_str = event.created_at.astimezone(user_tz).strftime("%d.%m.%Y %H:%M")
-    
-    emoji_map = {
-        "describe_user": "📝",
-        "describe_ai": "🧠",
-        "survey_morning": "🌅",
-        "survey_day": "☀️",
-        "survey_evening": "🌆",
-        "analysis": "🧠",
-        "clarification_question": "❓",
-        "clarification_answer": "💬",
-    }
-    
-    emoji = emoji_map.get(event.event_type, "📋")
-    
-    type_names = {
-        "describe_user": "Ты написал",
-        "describe_ai": "Ответ AI",
-        "survey_morning": "Утренний опрос",
-        "survey_day": "Дневной опрос",
-        "survey_evening": "Вечерний опрос",
-        "analysis": "Анализ",
-        "clarification_question": "Ты спросил",
-        "clarification_answer": "Ответ AI",
-    }
-    
-    type_name = type_names.get(event.event_type, event.event_type)
-    content_preview = event.content[:80] + "..." if event.content and len(event.content) > 80 else event.content or ""
-    
-    return f"{emoji} {time_str} — <b>{type_name}</b>\n{content_preview}\n"
-
-
 def format_dialog_full_history(events: list, user_tz) -> str:
-    """Форматирует полный диалог для истории."""
+    """Форматирует полный диалог/опрос для истории."""
     if not events:
         return "📝 Пустой диалог"
     
     first_event = events[0]
     date_str = first_event.created_at.astimezone(user_tz).strftime("%d.%m.%Y")
+    event_types = [e.event_type for e in events]
     
-    text = f"💬 <b>Диалог</b>\n📅 {date_str}\n\n"
+    if "survey_morning" in event_types:
+        text = f"🌅 <b>Утренний опрос</b>\n📅 {date_str}\n\n"
+    elif "survey_day" in event_types:
+        text = f"☀️ <b>Дневной опрос</b>\n📅 {date_str}\n\n"
+    elif "survey_evening" in event_types:
+        text = f"🌆 <b>Вечерний опрос</b>\n📅 {date_str}\n\n"
+    else:
+        text = f"💬 <b>Диалог</b>\n📅 {date_str}\n\n"
     
     for event in events:
         time_str = event.created_at.astimezone(user_tz).strftime("%H:%M")
@@ -82,6 +56,13 @@ def format_dialog_full_history(events: list, user_tz) -> str:
             text += f"❓ <b>Ты спросил</b> 🕐 {time_str}\n{event.content}\n\n"
         elif event.event_type == "clarification_answer":
             text += f"💬 <b>Ответ AI</b> 🕐 {time_str}\n{event.content}\n\n"
+        elif event.event_type.startswith("survey_"):
+            question = "Вопрос"
+            if event.payload and isinstance(event.payload, dict):
+                question = event.payload.get("question", "Вопрос")
+            text += f"❓ <b>{question}</b>\n📝 {event.content}\n\n"
+        elif event.event_type == "analysis":
+            text += f"🧠 <b>Анализ</b> 🕐 {time_str}\n{event.content}\n\n"
     
     return text
 
@@ -116,8 +97,6 @@ async def show_history(event: types.Message | CallbackQuery, db_session: AsyncSe
     
     user_tz = get_user_timezone(user)
     diary_repo = DiaryRepository(db_session)
-    
-    # Получаем последние 50 событий
     events = await diary_repo.get_latest_events(user.id, limit=50)
     
     if not events:
@@ -130,10 +109,13 @@ async def show_history(event: types.Message | CallbackQuery, db_session: AsyncSe
         )
         return
     
-    # Группируем диалоги по сессиям
+    # Группируем по сессиям
     sessions = {}
     for event in events:
-        if event.event_type in ["describe_user", "describe_ai", "clarification_question", "clarification_answer"]:
+        if event.event_type in [
+            "describe_user", "describe_ai", "clarification_question", "clarification_answer",
+            "survey_morning", "survey_day", "survey_evening", "analysis"
+        ]:
             session_id = event.session_id or f"single_{event.id}"
             if session_id not in sessions:
                 sessions[session_id] = []
@@ -141,39 +123,34 @@ async def show_history(event: types.Message | CallbackQuery, db_session: AsyncSe
     
     text = "📋 <b>История</b>\n\n"
     keyboard_buttons = []
+    idx = 0
     
-    # Показываем диалоги (по сессиям)
     for session_id, session_events in sessions.items():
+        idx += 1
         first_event = session_events[0]
         time_str = first_event.created_at.astimezone(user_tz).strftime("%d.%m.%Y %H:%M")
+        event_types = [e.event_type for e in session_events]
         
-        # Находим первое сообщение пользователя
-        user_message = None
-        for ev in session_events:
-            if ev.event_type == "describe_user":
-                user_message = ev.content
-                break
-        
-        if not user_message:
+        # Определяем тип
+        if "survey_morning" in event_types:
+            preview = f"🌅 <b>Утренний опрос</b>\n🕐 {time_str}\n{len(session_events)} вопросов"
+        elif "survey_day" in event_types:
+            preview = f"☀️ <b>Дневной опрос</b>\n🕐 {time_str}\n{len(session_events)} вопросов"
+        elif "survey_evening" in event_types:
+            preview = f"🌆 <b>Вечерний опрос</b>\n🕐 {time_str}\n{len(session_events)} вопросов"
+        else:
             user_message = "Нет сообщений"
+            for ev in session_events:
+                if ev.event_type == "describe_user":
+                    user_message = ev.content
+                    break
+            preview = f"💬 <b>Диалог</b>\n🕐 {time_str}\n📝 {user_message[:80]}..."
         
-        text += f"💬 <b>Диалог</b>\n🕐 {time_str}\n📝 {user_message[:80]}...\n\n"
+        text += preview + "\n\n"
         keyboard_buttons.append([
             InlineKeyboardButton(
-                text="📖 Подробнее",
+                text=f"📖 Подробнее #{idx}",
                 callback_data=f"history_dialog_detail_{session_id}"
-            )
-        ])
-    
-    # Показываем остальные события (опросы и т.д.)
-    other_events = [e for e in events if e.event_type not in ["describe_user", "describe_ai", "clarification_question", "clarification_answer"]]
-    for event in other_events:
-        text += format_event_for_history(event, user_tz)
-        text += "\n"
-        keyboard_buttons.append([
-            InlineKeyboardButton(
-                text="📖 Подробнее",
-                callback_data=f"history_event_detail_{event.id}"
             )
         ])
     
@@ -181,37 +158,23 @@ async def show_history(event: types.Message | CallbackQuery, db_session: AsyncSe
         text += "\n📌 Показаны последние 50 событий"
     
     keyboard_buttons.append([
-        InlineKeyboardButton(
-            text="🔙 В профиль",
-            callback_data="back_to_profile_from_history"
-        )
+        InlineKeyboardButton(text="🔙 В профиль", callback_data="back_to_profile_from_history")
     ])
     keyboard_buttons.append([
-        InlineKeyboardButton(
-            text="🔙 В меню",
-            callback_data="back_to_menu"
-        )
+        InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_menu")
     ])
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     
     if isinstance(event, CallbackQuery):
-        await message.edit_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
+        await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     else:
-        await message.answer(
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
+        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("history_dialog_detail_"))
 async def show_history_dialog_detail(callback: CallbackQuery, db_session: AsyncSession):
-    """Показывает полный диалог в истории."""
+    """Показывает полный диалог/опрос в истории."""
     await callback.answer()
     
     session_id = callback.data.replace("history_dialog_detail_", "")
@@ -223,20 +186,14 @@ async def show_history_dialog_detail(callback: CallbackQuery, db_session: AsyncS
     user = result.scalar_one_or_none()
     
     if not user:
-        await callback.message.edit_text(
-            "⚠️ Пожалуйста, отправьте /start",
-            reply_markup=None,
-        )
+        await callback.message.edit_text("⚠️ Пожалуйста, отправьте /start", reply_markup=None)
         return
     
     diary_repo = DiaryRepository(db_session)
     events = await diary_repo.get_session_events(user.id, session_id)
     
     if not events:
-        await callback.message.edit_text(
-            "❌ Диалог не найден.",
-            reply_markup=None,
-        )
+        await callback.message.edit_text("❌ Диалог не найден.", reply_markup=None)
         return
     
     user_tz = get_user_timezone(user)
@@ -244,82 +201,14 @@ async def show_history_dialog_detail(callback: CallbackQuery, db_session: AsyncS
     
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(
-                text="🔙 Назад к истории",
-                callback_data="diary_history"
-            )]
+            [InlineKeyboardButton(text="🔙 Назад к истории", callback_data="diary_history")]
         ]
     )
     
     try:
-        await callback.message.edit_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
-
-
-@router.callback_query(F.data.startswith("history_event_detail_"))
-async def show_history_event_detail(callback: CallbackQuery, db_session: AsyncSession):
-    """Показывает полное содержимое события в истории."""
-    await callback.answer()
-    
-    event_id = int(callback.data.replace("history_event_detail_", ""))
-    telegram_id = callback.from_user.id
-    
-    result = await db_session.execute(
-        select(User).where(User.telegram_id == telegram_id)
-    )
-    user = result.scalar_one_or_none()
-    
-    if not user:
-        await callback.message.edit_text(
-            "⚠️ Пожалуйста, отправьте /start",
-            reply_markup=None,
-        )
-        return
-    
-    diary_repo = DiaryRepository(db_session)
-    event = await diary_repo.get_event(event_id, user.id)
-    
-    if not event:
-        await callback.message.edit_text(
-            "❌ Событие не найдено.",
-            reply_markup=None,
-        )
-        return
-    
-    user_tz = get_user_timezone(user)
-    
-    text = format_event_full_history(event, user_tz)
-    
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(
-                text="🔙 Назад к истории",
-                callback_data="diary_history"
-            )]
-        ]
-    )
-    
-    try:
-        await callback.message.edit_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
+        await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "back_to_profile_from_history")
@@ -342,41 +231,12 @@ async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContex
 async def back_to_main_menu(callback: CallbackQuery):
     """Возврат в главное меню."""
     await callback.answer()
-    await callback.message.delete()
-    await callback.message.answer(
-        "Главное меню:",
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await callback.bot.send_message(
+        chat_id=callback.from_user.id,
+        text="Главное меню:",
         reply_markup=get_main_menu_keyboard(),
     )
-
-
-def format_event_full_history(event: DiaryEvent, user_tz) -> str:
-    """Форматирует событие для полного просмотра в истории."""
-    time_str = event.created_at.astimezone(user_tz).strftime("%d.%m.%Y %H:%M")
-    
-    emoji_map = {
-        "describe_user": "📝",
-        "describe_ai": "🧠",
-        "survey_morning": "🌅",
-        "survey_day": "☀️",
-        "survey_evening": "🌆",
-        "analysis": "🧠",
-        "clarification_question": "❓",
-        "clarification_answer": "💬",
-    }
-    
-    emoji = emoji_map.get(event.event_type, "📋")
-    
-    type_names = {
-        "describe_user": "Ты написал",
-        "describe_ai": "Ответ AI",
-        "survey_morning": "Утренний опрос",
-        "survey_day": "Дневной опрос",
-        "survey_evening": "Вечерний опрос",
-        "analysis": "Анализ",
-        "clarification_question": "Ты спросил",
-        "clarification_answer": "Ответ AI",
-    }
-    
-    type_name = type_names.get(event.event_type, event.event_type)
-    
-    return f"{emoji} <b>{type_name}</b>\n🕐 {time_str}\n\n{event.content}\n"
