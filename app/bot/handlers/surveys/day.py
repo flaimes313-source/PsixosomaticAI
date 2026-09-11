@@ -25,7 +25,7 @@ router = Router()
 
 
 @router.message(F.text == "☀️ Дневной опрос")
-async def start_day_survey(message: types.Message, state: FSMContext, db_session: AsyncSession):
+async def start_day_survey(message: types.Message, state: FSMContext, db_session: AsyncSession = None):
     """
     Запускает дневной опрос.
     """
@@ -67,7 +67,7 @@ async def process_day_q1(message: types.Message, state: FSMContext, db_session: 
     # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Как ты сейчас себя чувствуешь?",
         answer=answer,
         survey_type="day",
@@ -99,7 +99,7 @@ async def process_day_q2(message: types.Message, state: FSMContext, db_session: 
     # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Что изменилось с утра?",
         answer=answer,
         survey_type="day",
@@ -130,7 +130,7 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
     # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Что повлияло на твоё состояние?",
         answer=answer,
         survey_type="day",
@@ -205,8 +205,13 @@ async def day_finish(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
     
-    await callback.message.delete()
-    await callback.message.answer(
-        "Главное меню:",
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    await callback.bot.send_message(
+        chat_id=callback.from_user.id,
+        text="Главное меню:",
         reply_markup=get_main_menu_keyboard(),
     )

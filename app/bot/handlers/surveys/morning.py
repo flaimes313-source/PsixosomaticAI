@@ -46,7 +46,7 @@ def get_next_affirmation() -> str:
 
 
 @router.message(F.text == "🌅 Утренний опрос")
-async def start_morning_survey(message: types.Message, state: FSMContext, db_session: AsyncSession):
+async def start_morning_survey(message: types.Message, state: FSMContext, db_session: AsyncSession = None):
     """Запускает утренний опрос."""
     await state.clear()
     
@@ -85,16 +85,14 @@ async def process_morning_q1(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q1=answer)
     await state.set_state(MorningSurveyStates.waiting_for_question_2)
     
-    # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Как ты проснулся?",
         answer=answer,
         survey_type="morning",
         payload={"question_number": 1},
     )
-    # =============================================================
     
     await message.answer(
         "2️⃣ <b>Что сейчас чувствуешь в теле?</b>\n"
@@ -119,7 +117,7 @@ async def process_morning_q2(message: types.Message, state: FSMContext, db_sessi
     
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Что сейчас чувствуешь в теле?",
         answer=answer,
         survey_type="morning",
@@ -149,7 +147,7 @@ async def process_morning_q3(message: types.Message, state: FSMContext, db_sessi
     
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Какое у тебя настроение?",
         answer=answer,
         survey_type="morning",
@@ -179,7 +177,7 @@ async def process_morning_q4(message: types.Message, state: FSMContext, db_sessi
     
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Что сейчас в мыслях?",
         answer=answer,
         survey_type="morning",
@@ -208,7 +206,7 @@ async def process_morning_q5(message: types.Message, state: FSMContext, db_sessi
     
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Как спал прошлой ночью?",
         answer=answer,
         survey_type="morning",
@@ -251,7 +249,7 @@ async def process_morning_clarification(message: types.Message, state: FSMContex
     
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Где именно напряжение/дискомфорт?",
         answer=answer,
         survey_type="morning",
@@ -280,7 +278,7 @@ async def process_morning_second_clarification(message: types.Message, state: FS
     
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Что сильнее всего влияет на состояние?",
         answer=answer,
         survey_type="morning",
@@ -329,10 +327,9 @@ async def process_morning_second_clarification(message: types.Message, state: FS
             access_service = AccessService(db_session)
             await access_service.increment_body_analysis(telegram_id)
             
-            # ==================== СОХРАНЯЕМ АНАЛИЗ В ДНЕВНИК ====================
-            # Создаём событие анализа
+            # Сохраняем анализ в DiaryEvent
             await diary_service.record_event(
-                user_id=telegram_id,
+                telegram_id=telegram_id,
                 event_type="analysis",
                 source="morning_survey",
                 role="assistant",
@@ -344,7 +341,6 @@ async def process_morning_second_clarification(message: types.Message, state: FS
                 },
                 analysis_id=analysis_id,
             )
-            # ===================================================================
             
             result_text = format_morning_survey_analysis(analysis, survey_data)
             
@@ -388,8 +384,9 @@ async def morning_callback_actions(callback: CallbackQuery, state: FSMContext):
             "Если захочешь описать изменения — просто напиши мне.",
             reply_markup=None,
         )
-        await callback.message.answer(
-            "Главное меню:",
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text="Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )
         
@@ -400,8 +397,9 @@ async def morning_callback_actions(callback: CallbackQuery, state: FSMContext):
             "Если захочешь описать изменения — просто напиши мне.",
             reply_markup=None,
         )
-        await callback.message.answer(
-            "Главное меню:",
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text="Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )
         
@@ -412,16 +410,21 @@ async def morning_callback_actions(callback: CallbackQuery, state: FSMContext):
             "Это поможет отследить твой прогресс!",
             reply_markup=None,
         )
-        await callback.message.answer(
-            "Главное меню:",
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text="Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )
         
     elif action == "finish":
         await callback.answer()
         await state.clear()
-        await callback.message.delete()
-        await callback.message.answer(
-            "Главное меню:",
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text="Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )

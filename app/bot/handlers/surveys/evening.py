@@ -24,14 +24,13 @@ from app.services.diary_event_service import DiaryEventService
 from app.services.access_service import AccessService
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
-from app.db.repositories.analysis import AnalysisRepository
 from app.utils.logging import logger
 
 router = Router()
 
 
 @router.message(F.text == "🌆 Вечерний опрос")
-async def start_evening_survey(message: types.Message, state: FSMContext, db_session: AsyncSession):
+async def start_evening_survey(message: types.Message, state: FSMContext, db_session: AsyncSession = None):
     """
     Запускает вечерний опрос.
     """
@@ -73,7 +72,7 @@ async def process_evening_q1(message: types.Message, state: FSMContext, db_sessi
     # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Как ты сейчас себя чувствуешь?",
         answer=answer,
         survey_type="evening",
@@ -105,7 +104,7 @@ async def process_evening_q2(message: types.Message, state: FSMContext, db_sessi
     # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Что сильнее всего повлияло на состояние?",
         answer=answer,
         survey_type="evening",
@@ -137,7 +136,7 @@ async def process_evening_q3(message: types.Message, state: FSMContext, db_sessi
     # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Что дало тебе энергию сегодня?",
         answer=answer,
         survey_type="evening",
@@ -169,7 +168,7 @@ async def process_evening_q4(message: types.Message, state: FSMContext, db_sessi
     # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Что забрало твои силы сегодня?",
         answer=answer,
         survey_type="evening",
@@ -200,7 +199,7 @@ async def process_evening_q5(message: types.Message, state: FSMContext, db_sessi
     # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Как прошёл день с точки зрения еды, сна и движения?",
         answer=answer,
         survey_type="evening",
@@ -244,7 +243,7 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
     # ==================== СОХРАНЯЕМ В ДНЕВНИК ====================
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
-        user_id=message.from_user.id,
+        telegram_id=message.from_user.id,
         question="Что повторялось в состоянии сегодня?",
         answer=answer,
         survey_type="evening",
@@ -295,7 +294,7 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
             
             # ==================== СОХРАНЯЕМ АНАЛИЗ В ДНЕВНИК ====================
             await diary_service.record_event(
-                user_id=telegram_id,
+                telegram_id=telegram_id,
                 event_type="analysis",
                 source="evening_survey",
                 role="assistant",
@@ -351,8 +350,9 @@ async def evening_callback_actions(callback: CallbackQuery, state: FSMContext):
             "Спокойной ночи! 🌙",
             reply_markup=None,
         )
-        await callback.message.answer(
-            "Главное меню:",
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text="Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )
         
@@ -363,17 +363,22 @@ async def evening_callback_actions(callback: CallbackQuery, state: FSMContext):
             "Спокойной ночи! 🌙",
             reply_markup=None,
         )
-        await callback.message.answer(
-            "Главное меню:",
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text="Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )
         
     elif action == "finish":
         await callback.answer()
         await state.clear()
-        await callback.message.delete()
-        await callback.message.answer(
-            "Главное меню:",
+        try:
+            await callback.message.delete()
+        except Exception:
+            pass
+        await callback.bot.send_message(
+            chat_id=callback.from_user.id,
+            text="Главное меню:",
             reply_markup=get_main_menu_keyboard(),
         )
 
