@@ -180,7 +180,7 @@ async def _show_dynamics_report(
     )
     
     try:
-        # ==================== ИСПРАВЛЕНО: получаем user.id ====================
+        # Получаем user.id
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
@@ -200,11 +200,10 @@ async def _show_dynamics_report(
         
         user_id = user.id
         user_timezone = user.timezone if user else "UTC"
-        # =====================================================================
         
         dynamics_service = DynamicsService(db_session)
         
-        # ==================== ИСПРАВЛЕНО: передаём user.id ====================
+        # Передаём user.id
         report_result = await dynamics_service.get_report(
             user_id=user_id,
             period_days=period_days,
@@ -212,7 +211,6 @@ async def _show_dynamics_report(
             end_date=end_date,
             user_timezone=user_timezone,
         )
-        # =====================================================================
         
         try:
             await loading_message.delete()
@@ -230,7 +228,9 @@ async def _show_dynamics_report(
         
         report = report_result["report"]
         
+        # ==================== ВАЖНО: не перезаписываем state! ====================
         period_str = f"{report_result['start_date'].strftime('%d.%m.%Y')} — {report_result['end_date'].strftime('%d.%m.%Y')}"
+        # ========================================================================
         
         text = f"📊 <b>Динамика за {report_result['period_days']} дней</b>\n"
         text += f"📅 {period_str}\n"
@@ -256,8 +256,8 @@ async def _show_dynamics_report(
         
         if report.get('recurring_states'):
             text += "🔄 <b>Повторяющиеся состояния:</b>\n"
-            for state in report.get('recurring_states', []):
-                text += f"• {state}\n"
+            for recurring_state in report.get('recurring_states', []):
+                text += f"• {recurring_state}\n"
             text += "\n"
         
         if report.get('improvement_factors'):
