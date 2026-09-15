@@ -32,7 +32,6 @@ async def show_dynamics_menu(message: types.Message, state: FSMContext, db_sessi
     
     telegram_id = message.from_user.id
     
-    # Проверяем доступ (PRO или FREE)
     access_service = AccessService(db_session)
     is_pro = await access_service.is_pro(telegram_id)
     
@@ -65,7 +64,6 @@ async def process_period_selection(callback: CallbackQuery, state: FSMContext, d
     telegram_id = callback.from_user.id
     access_service = AccessService(db_session)
     
-    # Обработка "Свой период"
     if period_key == "custom":
         await callback.message.edit_text(
             "📝 <b>Введи свой период</b>\n\n"
@@ -78,7 +76,6 @@ async def process_period_selection(callback: CallbackQuery, state: FSMContext, d
         await state.set_state(DynamicsStates.waiting_for_custom_period)
         return
     
-    # Проверка доступа для 30 и 90 дней
     if period_key in ["30", "90"]:
         is_pro = await access_service.is_pro(telegram_id)
         if not is_pro:
@@ -123,7 +120,6 @@ async def process_custom_period(message: types.Message, state: FSMContext, db_se
         )
         return
     
-    # Пробуем распарсить как количество дней
     try:
         period_days = int(text)
         if period_days < 1 or period_days > 365:
@@ -137,7 +133,6 @@ async def process_custom_period(message: types.Message, state: FSMContext, db_se
     except ValueError:
         pass
     
-    # Пробуем распарсить как даты
     try:
         parts = text.split("-")
         if len(parts) != 2:
@@ -193,24 +188,36 @@ async def _show_dynamics_report(
     )
     
     try:
-        # Получаем часовой пояс пользователя
+        # ==================== ИСПРАВЛЕНО: получаем user.id ====================
         result = await db_session.execute(
             select(User).where(User.telegram_id == telegram_id)
         )
         user = result.scalar_one_or_none()
-        user_timezone = user.timezone if user else "UTC"
         
-        # Создаём сервис
+        if not user:
+            await loading_message.delete()
+            await message.answer(
+                "⚠️ Пользователь не найден. Отправьте /start",
+                reply_markup=get_main_menu_keyboard(),
+            )
+            await state.clear()
+            return
+        
+        user_id = user.id  # ← ВНУТРЕННИЙ ID
+        user_timezone = user.timezone if user else "UTC"
+        # =====================================================================
+        
         dynamics_service = DynamicsService(db_session)
         
-        # Получаем отчёт
+        # ==================== ИСПРАВЛЕНО: передаём user.id ====================
         report_result = await dynamics_service.get_report(
-            user_id=telegram_id,
+            user_id=user_id,  # ← ВНУТРЕННИЙ ID (1, 2, 3...), НЕ telegram_id
             period_days=period_days,
             start_date=start_date,
             end_date=end_date,
             user_timezone=user_timezone,
         )
+        # =====================================================================
         
         await loading_message.delete()
         
@@ -225,7 +232,6 @@ async def _show_dynamics_report(
         
         report = report_result["report"]
         
-        # Форматируем отчёт
         period_str = f"{report_result['start_date'].strftime('%d.%m.%Y')} — {report_result['end_date'].strftime('%d.%m.%Y')}"
         
         text = f"📊 <b>Динамика за {report_result['period_days']} дней</b>\n"
@@ -280,7 +286,6 @@ async def _show_dynamics_report(
                 text += f"• {rec}\n"
             text += "\n"
         
-        # Кнопки для продолжения
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(
@@ -316,7 +321,10 @@ async def _show_dynamics_report(
 async def dynamics_new_period(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Новый период для динамики."""
     await callback.answer()
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await show_dynamics_menu(callback.message, state, db_session)
 
 
@@ -326,8 +334,13 @@ async def dynamics_back_to_menu(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.clear()
     
-    await callback.message.delete()
-    await callback.message.answer(
-        "Главное меню:",
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    
+    await callback.bot.send_message(
+        chat_id=callback.from_user.id,
+        text="Главное меню:",
         reply_markup=get_main_menu_keyboard(),
     )
