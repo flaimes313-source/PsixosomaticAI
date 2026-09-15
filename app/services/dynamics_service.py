@@ -5,9 +5,11 @@
 from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 import json
 
 from app.db.repositories.diary_repository import DiaryRepository
+from app.db.models.user import User
 from app.services.dynamics_data_builder import DynamicsDataBuilder
 from app.services.yandex_gpt import YandexGPTClient, YandexGPTError
 from app.services.diary_event_service import DiaryEventService
@@ -31,10 +33,7 @@ class DynamicsService:
         end_date: Optional[date] = None,
         user_timezone: str = "UTC",
     ) -> Dict[str, Any]:
-        """
-        Получает отчёт о динамике за период.
-        """
-        # Определяем даты
+        """Получает отчёт о динамике за период."""
         if start_date is None:
             end_date = date.today()
             start_date = end_date - timedelta(days=period_days - 1)
@@ -42,7 +41,7 @@ class DynamicsService:
         if end_date is None:
             end_date = date.today()
 
-        logger.info(f"Getting dynamics report: user={user_id}, from={start_date} to={end_date}")
+        logger.info(f"Getting dynamics report: user_id={user_id}, from={start_date} to={end_date}")
 
         # Получаем события за период
         events = await self.repository.get_events_by_period(
@@ -81,6 +80,23 @@ class DynamicsService:
 Используй только предоставленные данные.
 Будь поддерживающим и бережным.
 Отвечай на русском языке.
+
+ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!
+НЕ ПИШИ НИКАКОГО ТЕКСТА ДО И ПОСЛЕ JSON.
+
+Структура ответа:
+{
+    "summary": "Общая картина за период (2-4 предложения)",
+    "mood_analysis": "Анализ настроения",
+    "energy_analysis": "Анализ энергии",
+    "tension_analysis": "Анализ напряжения тела",
+    "sleep_analysis": "Анализ сна",
+    "recurring_states": ["состояние 1", "состояние 2"],
+    "improvement_factors": ["фактор 1", "фактор 2"],
+    "decline_factors": ["фактор 1", "фактор 2"],
+    "progress": ["прогресс 1", "прогресс 2"],
+    "recommendations": ["рекомендация 1", "рекомендация 2"]
+}
 """
 
             response = await self.client.generate(
@@ -96,22 +112,28 @@ class DynamicsService:
             if not report_data:
                 return self._create_fallback_report(start_date, end_date, len(events))
 
-            # ==================== СОХРАНЯЕМ ОТЧЁТ В ДНЕВНИК ====================
-            diary_service = DiaryEventService(self.db_session)
-            await diary_service.record_event(
-                user_id=user_id,
-                event_type="dynamics_report",
-                source="dynamics",
-                role="system",
-                content=report_data.get("summary", "Отчёт динамики"),
-                payload={
-                    "period_from": start_date.isoformat(),
-                    "period_to": end_date.isoformat(),
-                    "period_days": period_days,
-                    "report": report_data,
-                },
+            # ==================== ИСПРАВЛЕНО: получаем telegram_id ====================
+            user_result = await self.db_session.execute(
+                select(User).where(User.id == user_id)
             )
-            # ====================================================================
+            user_obj = user_result.scalar_one_or_none()
+
+            if user_obj:
+                diary_service = DiaryEventService(self.db_session)
+                await diary_service.record_event(
+                    telegram_id=user_obj.telegram_id,  # ← ИСПРАВЛЕНО
+                    event_type="dynamics_report",
+                    source="dynamics",
+                    role="system",
+                    content=report_data.get("summary", "Отчёт динамики"),
+                    payload={
+                        "period_from": start_date.isoformat(),
+                        "period_to": end_date.isoformat(),
+                        "period_days": period_days,
+                        "report": report_data,
+                    },
+                )
+            # ==========================================================================
 
             return {
                 "success": True,
@@ -164,6 +186,7 @@ class DynamicsService:
 
         except json.JSONDecodeError as e:
             logger.error(f"JSON decode error in dynamics: {e}")
+            logger.error(f"Response: {response[:500]}")
             return None
         except Exception as e:
             logger.error(f"Error parsing dynamics response: {e}")
