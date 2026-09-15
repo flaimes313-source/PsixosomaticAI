@@ -25,9 +25,7 @@ router = Router()
 
 @router.message(F.text == "📊 Моя динамика")
 async def show_dynamics_menu(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """
-    Показывает меню выбора периода для динамики.
-    """
+    """Показывает меню выбора периода для динамики."""
     await state.clear()
     
     telegram_id = message.from_user.id
@@ -55,9 +53,7 @@ async def show_dynamics_menu(message: types.Message, state: FSMContext, db_sessi
 
 @router.callback_query(F.data.startswith("dynamics_period_"))
 async def process_period_selection(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """
-    Обрабатывает выбор периода.
-    """
+    """Обрабатывает выбор периода."""
     await callback.answer()
     
     period_key = callback.data.replace("dynamics_period_", "")
@@ -106,9 +102,7 @@ async def process_period_selection(callback: CallbackQuery, state: FSMContext, d
 
 @router.message(DynamicsStates.waiting_for_custom_period, F.text)
 async def process_custom_period(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """
-    Обрабатывает ввод своего периода.
-    """
+    """Обрабатывает ввод своего периода."""
     text = message.text.strip()
     telegram_id = message.from_user.id
     
@@ -179,9 +173,7 @@ async def _show_dynamics_report(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
 ):
-    """
-    Показывает отчёт о динамике.
-    """
+    """Показывает отчёт о динамике."""
     loading_message = await message.answer(
         "📊 <b>Анализирую динамику...</b>\n\nПожалуйста, подожди.",
         parse_mode="HTML",
@@ -195,7 +187,10 @@ async def _show_dynamics_report(
         user = result.scalar_one_or_none()
         
         if not user:
-            await loading_message.delete()
+            try:
+                await loading_message.delete()
+            except Exception:
+                pass
             await message.answer(
                 "⚠️ Пользователь не найден. Отправьте /start",
                 reply_markup=get_main_menu_keyboard(),
@@ -203,7 +198,7 @@ async def _show_dynamics_report(
             await state.clear()
             return
         
-        user_id = user.id  # ← ВНУТРЕННИЙ ID
+        user_id = user.id
         user_timezone = user.timezone if user else "UTC"
         # =====================================================================
         
@@ -211,7 +206,7 @@ async def _show_dynamics_report(
         
         # ==================== ИСПРАВЛЕНО: передаём user.id ====================
         report_result = await dynamics_service.get_report(
-            user_id=user_id,  # ← ВНУТРЕННИЙ ID (1, 2, 3...), НЕ telegram_id
+            user_id=user_id,
             period_days=period_days,
             start_date=start_date,
             end_date=end_date,
@@ -219,7 +214,10 @@ async def _show_dynamics_report(
         )
         # =====================================================================
         
-        await loading_message.delete()
+        try:
+            await loading_message.delete()
+        except Exception:
+            pass
         
         if not report_result["success"]:
             await message.answer(
@@ -308,7 +306,10 @@ async def _show_dynamics_report(
         )
         
     except Exception as e:
-        await loading_message.delete()
+        try:
+            await loading_message.delete()
+        except Exception:
+            pass
         logger.error(f"Error in dynamics report: {e}")
         await message.answer(
             "😔 Произошла ошибка при формировании отчёта. Попробуйте позже.",
