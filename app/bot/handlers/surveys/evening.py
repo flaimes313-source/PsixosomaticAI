@@ -20,7 +20,7 @@ from app.bot.keyboards.surveys import (
     get_evening_reminder_keyboard,
 )
 from app.bot.keyboards import get_main_menu_keyboard
-from app.services.ai_service import ai_service
+from app.services.ai_service import ai_service, EVENING_SURVEY_PROMPT
 from app.services.diary_event_service import DiaryEventService
 from app.services.access_service import AccessService
 from app.services.safety import safety_service, SafetyLevel
@@ -349,6 +349,7 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
             intensity=5,
             context="Вечерний опрос",
             db_session=db_session,
+            function_prompt=EVENING_SURVEY_PROMPT,
         )
         
         try:

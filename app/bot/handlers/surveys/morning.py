@@ -20,7 +20,7 @@ from app.bot.keyboards.surveys import (
     get_morning_reminder_keyboard,
 )
 from app.bot.keyboards import get_main_menu_keyboard
-from app.services.ai_service import ai_service
+from app.services.ai_service import ai_service, MORNING_SURVEY_PROMPT
 from app.services.diary_event_service import DiaryEventService
 from app.services.safety import safety_service, SafetyLevel
 from app.db.models.user import User
@@ -424,6 +424,7 @@ async def process_morning_second_clarification(message: types.Message, state: FS
             intensity=5,
             context="Утренний опрос",
             db_session=db_session,
+            function_prompt=MORNING_SURVEY_PROMPT,
         )
         
         try:

@@ -12,7 +12,6 @@ from app.db.repositories.clarification import ClarificationRepository
 from app.db.repositories.diary_repository import DiaryRepository
 from app.db.models.user import User
 from app.schemas.analysis import AnalysisResult
-from app.schemas.dynamics import DynamicsStatistics, DynamicsReport
 from app.utils.logging import logger
 
 
@@ -315,7 +314,6 @@ MORNING_SURVEY_PROMPT = """
 ТЕКУЩАЯ ФУНКЦИЯ: УТРЕННИЙ ОПРОС
 
 Цель утреннего опроса:
-
 • мягко начать день;
 • заметить состояние тела;
 • оценить сон;
@@ -324,10 +322,6 @@ MORNING_SURVEY_PROMPT = """
 • увидеть предстоящую нагрузку;
 • сформировать небольшую настройку на день.
 
-В начале утреннего опроса дай короткую индивидуальную поддерживающую фразу.
-Не используй одну и ту же фразу постоянно.
-После неё переходи непосредственно к опросу.
-
 Основные темы утреннего опроса:
 1. Сон.
 2. Состояние тела.
@@ -335,18 +329,7 @@ MORNING_SURVEY_PROMPT = """
 4. Энергия.
 5. Предстоящие нагрузки или важные события.
 
-Не обязательно задавать все вопросы отдельно.
-Объединяй вопросы естественно, если пользователь уже дал часть информации.
-
-Если обнаружено лёгкое напряжение или усталость, можно предложить простой безопасный способ самопомощи:
-• вода;
-• короткая пауза;
-• мягкое движение;
-• дыхание;
-• отдых;
-• изменение темпа.
-
-В конце утреннего опроса кратко зафиксируй главное.
+В ответе кратко зафиксируй главное.
 """
 
 
@@ -364,8 +347,7 @@ DAY_SURVEY_PROMPT = """
 «Как сейчас состояние по сравнению с утром?»
 «Что изменилось в теле, настроении или энергии за день?»
 
-Если утром было отмечено конкретное состояние, можешь вернуться к нему:
-«Утром ты отмечал напряжение. Как сейчас?»
+Если утром было отмечено конкретное состояние, можешь вернуться к нему.
 """
 
 
@@ -387,9 +369,6 @@ EVENING_SURVEY_PROMPT = """
 5. Сон/питание/нагрузка, если они оказались значимыми.
 6. Что помогло улучшить состояние.
 7. Что человек сам заметил.
-
-Не нужно задавать все эти вопросы каждый вечер.
-Используй только те, которые нужны для понимания конкретного дня.
 
 Особенно важно искать изменения:
 «Что было утром → что происходило днём → что стало вечером».
@@ -467,9 +446,7 @@ class AIService:
     # ==================== ФОРМИРОВАНИЕ КОНТЕКСТА ====================
 
     def _build_system_prompt(self, function_prompt: str = "") -> str:
-        """
-        Собирает системный промпт: базовая инструкция Сомы + функциональный промпт.
-        """
+        """Собирает системный промпт: базовая инструкция Сомы + функциональный промпт."""
         if function_prompt:
             return f"{SOMA_BASE_PROMPT}\n\n{'='*60}\n\n{function_prompt}"
         return SOMA_BASE_PROMPT
@@ -480,9 +457,7 @@ class AIService:
         db_session: AsyncSession,
         limit: int = 5,
     ) -> str:
-        """
-        Получает последние N событий пользователя для контекста.
-        """
+        """Получает последние N событий пользователя для контекста."""
         try:
             user_result = await db_session.execute(
                 select(User).where(User.telegram_id == telegram_id)
@@ -520,92 +495,7 @@ class AIService:
             logger.error(f"Error getting previous records: {e}")
             return ""
 
-    def _build_user_prompt_with_context(
-        self,
-        function_name: str,
-        user_message: str,
-        previous_records: str = "",
-        current_dialog: str = "",
-        extra_data: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """
-        Формирует пользовательский промпт с полным контекстом.
-        """
-        from datetime import datetime
-        
-        prompt = f"""ТЕКУЩАЯ ДАТА: {datetime.now().strftime('%d.%m.%Y %H:%M')}
-
-ФУНКЦИЯ: {function_name}
-
-"""
-
-        if previous_records:
-            prompt += f"""ПРЕДЫДУЩИЕ ЗАПИСИ:
-{previous_records}
-
-"""
-
-        if current_dialog:
-            prompt += f"""ТЕКУЩИЙ ДИАЛОГ:
-{current_dialog}
-
-"""
-
-        if extra_data:
-            prompt += f"""ДОПОЛНИТЕЛЬНЫЕ ДАННЫЕ:
-{json.dumps(extra_data, ensure_ascii=False, indent=2)}
-
-"""
-
-        prompt += f"""СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ:
-{user_message}
-"""
-
-        return prompt
-
-    # ==================== РЕЖИМ 1: ПЕРВИЧНЫЙ АНАЛИЗ ТЕЛА ====================
-
-    def _build_primary_system_prompt(self) -> str:
-        """Системный промпт для первичного анализа (JSON)."""
-        return self._build_system_prompt() + """
-
-================================================================================
-ВАЖНО! ДЛЯ ПЕРВИЧНОГО АНАЛИЗА ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!
-================================================================================
-
-НЕ ПИШИ НИКАКОГО ТЕКСТА ДО И ПОСЛЕ JSON. ТОЛЬКО JSON.
-
-Структура ответа (все ключи строго на английском):
-{
-    "summary": "Краткое резюме симптома и возможной связи (2-3 предложения)",
-    "possible_factors": ["фактор 1", "фактор 2", "фактор 3"],
-    "possible_patterns": ["паттерн 1", "паттерн 2"],
-    "check_question": "Вопрос для самопроверки (или null)",
-    "micro_action": "Маленькое практическое действие (или null)",
-    "things_to_observe": ["что наблюдать 1", "что наблюдать 2"],
-    "medical_warning": "Медицинское предупреждение или null"
-}
-
-ОТВЕЧАЙ ТОЛЬКО JSON. НИКАКОГО ДРУГОГО ТЕКСТА.
-"""
-
-    def _build_user_prompt(
-        self,
-        symptom: str,
-        duration: str,
-        intensity: int,
-        context: str,
-    ) -> str:
-        return f"""
-Проанализируй следующий симптом и дай структурированный ответ в JSON:
-
-Симптом: {symptom}
-Длительность: {duration}
-Интенсивность: {intensity}/10
-Контекст: {context}
-"""
-
-    # ==================== РЕЖИМ 2: «ОПИСАТЬ СОСТОЯНИЕ» ====================
+    # ==================== РЕЖИМ 1: «ОПИСАТЬ СОСТОЯНИЕ» ====================
 
     async def describe_state(
         self,
@@ -613,29 +503,28 @@ class AIService:
         telegram_id: int,
         db_session: AsyncSession,
     ) -> Dict[str, Any]:
-        """
-        Живой диалог «Описать состояние».
-        Передаёт контекст: предыдущие записи.
-        """
+        """Живой диалог «Описать состояние»."""
         logger.info(f"DESCRIBE_STATE_STARTED: user={telegram_id}")
 
         try:
-            # Получаем предыдущие записи для контекста
             previous_records = await self._get_previous_records(
                 telegram_id, db_session, limit=5
             )
 
-            # Собираем системный промпт
             system_prompt = self._build_system_prompt(DESCRIBE_STATE_PROMPT)
 
-            # Собираем пользовательский промпт с контекстом
-            user_prompt = self._build_user_prompt_with_context(
-                function_name="Описать состояние",
-                user_message=description,
-                previous_records=previous_records,
-            )
+            from datetime import datetime
+            user_prompt = f"""ТЕКУЩАЯ ДАТА: {datetime.now().strftime('%d.%m.%Y %H:%M')}
 
-            # Отправляем в YandexGPT
+ФУНКЦИЯ: Описать состояние
+
+ПРЕДЫДУЩИЕ ЗАПИСИ:
+{previous_records}
+
+СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ:
+{description}
+"""
+
             response = await self.client.generate(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -690,125 +579,128 @@ class AIService:
             logger.error(f"Unexpected error: {e}")
             return {"success": False, "answer": None, "error": "Ошибка при ответе."}
 
-    # ==================== РЕЖИМ 3: УТОЧНЕНИЯ ====================
+    # ==================== РЕЖИМ 2: АНАЛИЗ ОПРОСОВ ====================
 
-    async def clarify_symptom(
+    def _build_primary_system_prompt(self, function_prompt: str = "") -> str:
+        """Системный промпт для анализа опросов (JSON)."""
+        return self._build_system_prompt(function_prompt) + """
+
+================================================================================
+ВАЖНО! ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!
+================================================================================
+
+НЕ ПИШИ НИКАКОГО ТЕКСТА ДО И ПОСЛЕ JSON. ТОЛЬКО JSON.
+
+Структура ответа (все ключи строго на английском):
+{
+    "summary": "Краткое резюме состояния (2-3 предложения)",
+    "possible_factors": ["фактор 1", "фактор 2", "фактор 3"],
+    "possible_patterns": ["паттерн 1", "паттерн 2"],
+    "check_question": "Вопрос для самопроверки (или null)",
+    "micro_action": "Маленькое практическое действие (или null)",
+    "things_to_observe": ["что наблюдать 1", "что наблюдать 2"],
+    "medical_warning": "Медицинское предупреждение или null"
+}
+
+ОТВЕЧАЙ ТОЛЬКО JSON. НИКАКОГО ДРУГОГО ТЕКСТА.
+"""
+
+    def _build_user_prompt(
         self,
         symptom: str,
         duration: str,
         intensity: int,
         context: str,
-        previous_analysis: str,
-        question: str,
-        analysis_id: Optional[int] = None,
-        telegram_id: Optional[int] = None,
-        db_session: Optional[AsyncSession] = None,
-    ) -> Dict[str, Any]:
-        """Отвечает на уточняющий вопрос."""
-        logger.info(f"CLARIFICATION_STARTED")
+    ) -> str:
+        return f"""
+Проанализируй следующее состояние и дай структурированный ответ в JSON:
 
-        try:
-            history_text = ""
-            if db_session and analysis_id:
-                try:
-                    repo = ClarificationRepository(db_session)
-                    clarifications = await repo.get_by_analysis_id(analysis_id)
-                    if clarifications:
-                        history_parts = []
-                        for i, clar in enumerate(clarifications, 1):
-                            history_parts.append(f"Вопрос {i}: {clar.question}")
-                            history_parts.append(f"Ответ {i}: {clar.answer}")
-                        history_text = "\n".join(history_parts)
-                except Exception as e:
-                    logger.warning(f"Could not load clarification history: {e}")
-
-            system_prompt = self._build_system_prompt(DESCRIBE_STATE_PROMPT)
-
-            user_prompt = f"""ТЕКУЩАЯ ФУНКЦИЯ: Уточняющий вопрос
-
-ИСХОДНЫЕ ДАННЫЕ:
 Симптом: {symptom}
 Длительность: {duration}
 Интенсивность: {intensity}/10
 Контекст: {context}
-
-ПЕРВИЧНЫЙ АНАЛИЗ:
-{previous_analysis}
-
-ИСТОРИЯ ДИАЛОГА:
-{history_text if history_text else "Пока нет предыдущих вопросов."}
-
-ТЕКУЩИЙ ВОПРОС:
-{question}
 """
+
+    async def analyze_symptom(
+        self,
+        symptom: str,
+        duration: str,
+        intensity: int,
+        context: str,
+        function_prompt: str = "",
+    ) -> Dict[str, Any]:
+        """Анализ состояния (JSON)."""
+        try:
+            system_prompt = self._build_primary_system_prompt(function_prompt)
+            user_prompt = self._build_user_prompt(symptom, duration, intensity, context)
 
             response = await self.client.generate(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                temperature=0.65,
-            )
-
-            logger.info("CLARIFICATION_COMPLETED")
-            
-            result = {"success": True, "answer": response, "error": None}
-            
-            if db_session and analysis_id and telegram_id:
-                try:
-                    user_result = await db_session.execute(
-                        select(User).where(User.telegram_id == telegram_id)
-                    )
-                    user = user_result.scalar_one_or_none()
-                    
-                    if user:
-                        repo = ClarificationRepository(db_session)
-                        clarification = await repo.create(
-                            analysis_id=analysis_id,
-                            user_id=user.id,
-                            question=question,
-                            answer=response,
-                        )
-                        result["saved"] = True
-                        result["clarification_id"] = clarification.id
-                except Exception as e:
-                    logger.error(f"Failed to save clarification: {e}")
-                    result["saved"] = False
-            
-            return result
-
-        except Exception as e:
-            logger.error(f"Clarification failed: {e}")
-            return {"success": False, "answer": None, "error": str(e)}
-
-    # ==================== РЕЖИМ 4: ДИНАМИКА ====================
-
-    async def analyze_dynamics(
-        self,
-        stats: DynamicsStatistics,
-    ) -> Optional[DynamicsReport]:
-        """Анализ динамики."""
-        if stats.entries_count < 3:
-            return None
-
-        try:
-            data_for_ai = self._prepare_dynamics_data(stats)
-            system_prompt = self._build_system_prompt(DYNAMICS_PROMPT)
-            
-            response = await self.client.generate(
-                system_prompt=system_prompt,
-                user_prompt=json.dumps(data_for_ai, ensure_ascii=False, indent=2),
                 temperature=0.3,
             )
-
-            report_data = self._parse_dynamics_response(response)
-            if not report_data:
-                return self._create_fallback_report(stats)
-
-            report = DynamicsReport(**report_data)
-            return report
-
+            result = self._parse_response(response)
+            return {"success": True, "analysis": result, "error": None}
         except Exception as e:
-            logger.error(f"Error in analyze_dynamics: {e}")
-            return self._create_fallback_report(stats)
+            logger.error(f"AI analysis failed: {e}")
+            return {"success": False, "analysis": None, "error": str(e)}
+
+    async def analyze_and_save(
+        self,
+        telegram_id: int,
+        symptom: str,
+        duration: str,
+        intensity: int,
+        context: str,
+        db_session: AsyncSession,
+        function_prompt: str = "",
+    ) -> Dict[str, Any]:
+        """Анализ состояния + сохранение в analyses."""
+        try:
+            result = await db_session.execute(
+                select(User).where(User.telegram_id == telegram_id)
+            )
+            user = result.scalar_one_or_none()
+            
+            if not user:
+                return {"success": False, "error": "Пользователь не найден"}
+
+            result = await self.analyze_symptom(
+                symptom=symptom,
+                duration=duration,
+                intensity=intensity,
+                context=context,
+                function_prompt=function_prompt,
+            )
+
+            if not result["success"]:
+                return result
+
+            try:
+                analysis_repo = AnalysisRepository(db_session)
+                analysis_obj = result["analysis"]
+                analysis_text = format_analysis_for_db(analysis_obj)
+                
+                analysis = await analysis_repo.create(
+                    user_id=user.id,
+                    symptom=symptom,
+                    duration=duration,
+                    intensity=intensity,
+                    context=context,
+                    analysis=analysis_text,
+                )
+                
+                result["saved"] = True
+                result["analysis_id"] = analysis.id
+                result["user_id"] = user.id
+            except Exception as e:
+                logger.error(f"Failed to save: {e}")
+                result["saved"] = False
+
+            return result
+        except Exception as e:
+            logger.error(f"Error in analyze_and_save: {e}")
+            return {"success": False, "error": str(e)}
 
     # ==================== ПАРСИНГ ====================
 
@@ -844,127 +736,6 @@ class AIService:
                 things_to_observe=[],
                 medical_warning="Произошла ошибка."
             )
-
-    def _parse_dynamics_response(self, response: str) -> Optional[Dict[str, Any]]:
-        try:
-            brace_count = 0
-            start = -1
-            for i, char in enumerate(response):
-                if char == '{':
-                    if brace_count == 0:
-                        start = i
-                    brace_count += 1
-                elif char == '}':
-                    brace_count -= 1
-                    if brace_count == 0 and start != -1:
-                        json_str = response[start:i+1]
-                        break
-            else:
-                data = json.loads(response)
-                return data
-            
-            data = json.loads(json_str)
-            required = ["summary", "main_patterns", "possible_connections", 
-                       "positive_changes", "areas_to_watch", "next_steps"]
-            for field in required:
-                if field not in data:
-                    data[field] = [] if field != "summary" else "Отчёт не сформирован."
-            return data
-        except Exception as e:
-            logger.error(f"Error parsing dynamics: {e}")
-            return None
-
-    def _prepare_dynamics_data(self, stats: DynamicsStatistics) -> Dict[str, Any]:
-        return {
-            "period_days": stats.period_days,
-            "entries_count": stats.entries_count,
-            "start_date": stats.start_date.strftime("%d.%m.%Y"),
-            "end_date": stats.end_date.strftime("%d.%m.%Y"),
-            "average_intensity": stats.average_intensity,
-            "average_stress": stats.average_stress,
-            "average_mood": stats.average_mood,
-            "average_sleep": stats.average_sleep,
-        }
-
-    def _create_fallback_report(self, stats: DynamicsStatistics) -> DynamicsReport:
-        return DynamicsReport(
-            summary=f"За {stats.period_days} дней сделано {stats.entries_count} записей.",
-            main_patterns=["Интенсивность: %s–%s/10" % (stats.min_intensity, stats.max_intensity)],
-            possible_connections=[],
-            positive_changes=[],
-            areas_to_watch=["Продолжай наблюдение"],
-            next_steps=["Продолжай вести дневник"],
-            medical_note="ℹ️ Это наблюдение по дневниковым данным.",
-        )
-
-    # ==================== СОВМЕСТИМОСТЬ ====================
-
-    async def analyze_symptom(self, symptom: str, duration: str, intensity: int, context: str) -> Dict[str, Any]:
-        """Первичный анализ симптома (JSON)."""
-        try:
-            system_prompt = self._build_primary_system_prompt()
-            user_prompt = self._build_user_prompt(symptom, duration, intensity, context)
-
-            response = await self.client.generate(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=0.3,
-            )
-            result = self._parse_response(response)
-            return {"success": True, "analysis": result, "error": None}
-        except Exception as e:
-            logger.error(f"AI analysis failed: {e}")
-            return {"success": False, "analysis": None, "error": str(e)}
-
-    async def analyze_and_save(
-        self,
-        telegram_id: int,
-        symptom: str,
-        duration: str,
-        intensity: int,
-        context: str,
-        db_session: AsyncSession,
-    ) -> Dict[str, Any]:
-        """Анализ симптома + сохранение."""
-        try:
-            result = await db_session.execute(
-                select(User).where(User.telegram_id == telegram_id)
-            )
-            user = result.scalar_one_or_none()
-            
-            if not user:
-                return {"success": False, "error": "Пользователь не найден"}
-
-            result = await self.analyze_symptom(symptom, duration, intensity, context)
-
-            if not result["success"]:
-                return result
-
-            try:
-                analysis_repo = AnalysisRepository(db_session)
-                analysis_obj = result["analysis"]
-                analysis_text = format_analysis_for_db(analysis_obj)
-                
-                analysis = await analysis_repo.create(
-                    user_id=user.id,
-                    symptom=symptom,
-                    duration=duration,
-                    intensity=intensity,
-                    context=context,
-                    analysis=analysis_text,
-                )
-                
-                result["saved"] = True
-                result["analysis_id"] = analysis.id
-                result["user_id"] = user.id
-            except Exception as e:
-                logger.error(f"Failed to save: {e}")
-                result["saved"] = False
-
-            return result
-        except Exception as e:
-            logger.error(f"Error in analyze_and_save: {e}")
-            return {"success": False, "error": str(e)}
 
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
