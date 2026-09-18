@@ -3,6 +3,7 @@
 Полноценный диалог с живым AI-ответом (без JSON, без шаблонов).
 Сохраняет всё в DiaryEvent.
 """
+
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -25,9 +26,11 @@ from app.utils.logging import logger
 router = Router()
 
 
+
 @router.message(F.text == "📝 Описать состояние")
 async def start_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """Запускает сценарий «Описать состояние»."""
+    logger.info("=== DESCRIBE_STATE v3 — DEPLOY CHECK ===")
     await state.clear()
     
     telegram_id = message.from_user.id
