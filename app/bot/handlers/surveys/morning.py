@@ -1,6 +1,6 @@
 """
 Обработчик утреннего опроса.
-Сохраняет каждый ответ в DiaryEvent.
+Сохраняет каждый ответ в DiaryEvent с метриками.
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -46,12 +46,60 @@ def get_next_affirmation() -> str:
     return aff
 
 
+# ==================== МАППИНГ ОТВЕТОВ В МЕТРИКИ ====================
+
+def map_energy_from_wakeup(answer: str) -> int:
+    """Маппинг ответа 'Как проснулся' в метрику energy (1-10)."""
+    mapping = {
+        "Бодро": 8,
+        "Спокойно": 6,
+        "Тяжело": 3,
+        "Тревожно": 2,
+    }
+    return mapping.get(answer, 5)
+
+
+def map_body_tension_from_feeling(answer: str) -> int:
+    """Маппинг ответа 'Что чувствуешь в теле' в метрику body_tension (1-10)."""
+    mapping = {
+        "Напряжение": 8,
+        "Боль": 7,
+        "Усталость": 6,
+        "Лёгкость": 2,
+    }
+    return mapping.get(answer, 5)
+
+
+def map_mood(answer: str) -> int:
+    """Маппинг ответа 'Какое настроение' в метрику mood (1-10)."""
+    mapping = {
+        "Радостное": 9,
+        "Спокойное": 7,
+        "Нейтральное": 5,
+        "Тревожное": 3,
+        "Раздражённое": 2,
+    }
+    return mapping.get(answer, 5)
+
+
+def map_sleep(answer: str) -> float:
+    """Маппинг ответа 'Как спал' в метрику sleep (часы)."""
+    mapping = {
+        "Отлично": 8.0,
+        "Видел сны": 7.0,
+        "Часто просыпался": 5.0,
+        "Плохо": 4.0,
+    }
+    return mapping.get(answer, 6.0)
+
+
+# ==================== ЗАПУСК ====================
+
 @router.message(F.text == "🌅 Утренний опрос")
 async def start_morning_survey(message: types.Message, state: FSMContext, db_session: AsyncSession = None):
     """Запускает утренний опрос."""
     await state.clear()
     
-    # Создаём session_id для группировки
     session_id = str(uuid.uuid4())
     await state.update_data(session_id=session_id)
     
@@ -79,7 +127,7 @@ async def start_morning_survey(message: types.Message, state: FSMContext, db_ses
 
 @router.message(MorningSurveyStates.waiting_for_question_1, F.text)
 async def process_morning_q1(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 1."""
+    """Обработка вопроса 1: Как проснулся."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -93,6 +141,9 @@ async def process_morning_q1(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q1=answer)
     await state.set_state(MorningSurveyStates.waiting_for_question_2)
     
+    # ==================== МЕТРИКА: energy ====================
+    energy_value = map_energy_from_wakeup(answer)
+    
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
@@ -100,8 +151,12 @@ async def process_morning_q1(message: types.Message, state: FSMContext, db_sessi
         answer=answer,
         survey_type="morning",
         session_id=session_id,
-        payload={"question_number": 1},
+        payload={
+            "question_number": 1,
+            "energy": energy_value,
+        },
     )
+    # =========================================================
     
     await message.answer(
         "2️⃣ <b>Что сейчас чувствуешь в теле?</b>\n"
@@ -113,7 +168,7 @@ async def process_morning_q1(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(MorningSurveyStates.waiting_for_question_2, F.text)
 async def process_morning_q2(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 2."""
+    """Обработка вопроса 2: Что чувствуешь в теле."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -127,6 +182,9 @@ async def process_morning_q2(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q2=answer)
     await state.set_state(MorningSurveyStates.waiting_for_question_3)
     
+    # ==================== МЕТРИКА: body_tension ====================
+    body_tension_value = map_body_tension_from_feeling(answer)
+    
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
@@ -134,8 +192,12 @@ async def process_morning_q2(message: types.Message, state: FSMContext, db_sessi
         answer=answer,
         survey_type="morning",
         session_id=session_id,
-        payload={"question_number": 2},
+        payload={
+            "question_number": 2,
+            "body_tension": body_tension_value,
+        },
     )
+    # ==============================================================
     
     await message.answer(
         "3️⃣ <b>Какое у тебя настроение?</b>\n"
@@ -147,7 +209,7 @@ async def process_morning_q2(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(MorningSurveyStates.waiting_for_question_3, F.text)
 async def process_morning_q3(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 3."""
+    """Обработка вопроса 3: Какое настроение."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -161,6 +223,9 @@ async def process_morning_q3(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q3=answer)
     await state.set_state(MorningSurveyStates.waiting_for_question_4)
     
+    # ==================== МЕТРИКА: mood ====================
+    mood_value = map_mood(answer)
+    
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
@@ -168,8 +233,12 @@ async def process_morning_q3(message: types.Message, state: FSMContext, db_sessi
         answer=answer,
         survey_type="morning",
         session_id=session_id,
-        payload={"question_number": 3},
+        payload={
+            "question_number": 3,
+            "mood": mood_value,
+        },
     )
+    # =======================================================
     
     await message.answer(
         "4️⃣ <b>Что сейчас в мыслях?</b>\n"
@@ -181,7 +250,7 @@ async def process_morning_q3(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(MorningSurveyStates.waiting_for_question_4, F.text)
 async def process_morning_q4(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 4."""
+    """Обработка вопроса 4: Что в мыслях."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -215,7 +284,7 @@ async def process_morning_q4(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(MorningSurveyStates.waiting_for_question_5, F.text)
 async def process_morning_q5(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 5."""
+    """Обработка вопроса 5: Как спал."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -228,6 +297,9 @@ async def process_morning_q5(message: types.Message, state: FSMContext, db_sessi
     
     await state.update_data(q5=answer)
     
+    # ==================== МЕТРИКА: sleep ====================
+    sleep_value = map_sleep(answer)
+    
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
@@ -235,8 +307,12 @@ async def process_morning_q5(message: types.Message, state: FSMContext, db_sessi
         answer=answer,
         survey_type="morning",
         session_id=session_id,
-        payload={"question_number": 5},
+        payload={
+            "question_number": 5,
+            "sleep": sleep_value,
+        },
     )
+    # =======================================================
     
     data = await state.get_data()
     survey_data = {
@@ -350,7 +426,10 @@ async def process_morning_second_clarification(message: types.Message, state: FS
             db_session=db_session,
         )
         
-        await loading_message.delete()
+        try:
+            await loading_message.delete()
+        except Exception:
+            pass
         
         if result["success"]:
             analysis = result["analysis"]
@@ -397,7 +476,10 @@ async def process_morning_second_clarification(message: types.Message, state: FS
             )
             
     except Exception as e:
-        await loading_message.delete()
+        try:
+            await loading_message.delete()
+        except Exception:
+            pass
         logger.error(f"Error in morning survey: {e}")
         await message.answer(
             "😔 Произошла ошибка. Попробуйте позже.",

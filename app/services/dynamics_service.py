@@ -1,6 +1,6 @@
 """
 Сервис для анализа динамики.
-Использует DiaryRepository и DynamicsDataBuilder.
+Использует DiaryRepository и DynamicsDataBuilder + новый промпт Сомы.
 """
 from datetime import date, datetime, timedelta
 from typing import Optional, Dict, Any, List
@@ -13,6 +13,7 @@ from app.db.models.user import User
 from app.services.dynamics_data_builder import DynamicsDataBuilder
 from app.services.yandex_gpt import YandexGPTClient, YandexGPTError
 from app.services.diary_event_service import DiaryEventService
+from app.services.ai_service import SOMA_BASE_PROMPT, DYNAMICS_PROMPT
 from app.utils.logging import logger
 
 
@@ -43,7 +44,6 @@ class DynamicsService:
 
         logger.info(f"Getting dynamics report: user_id={user_id}, from={start_date} to={end_date}")
 
-        # Получаем события за период
         events = await self.repository.get_events_by_period(
             user_id=user_id,
             start_date=start_date,
@@ -62,42 +62,15 @@ class DynamicsService:
                 "events_count": len(events),
             }
 
-        # Строим структурированные данные
         data = self.builder.build(events, start_date, end_date, user_timezone)
-
-        # Формируем промпт
         prompt = self.builder.build_prompt(data)
 
         logger.info(f"Dynamics prompt created, length={len(prompt)}")
 
-        # Отправляем в YandexGPT
         try:
-            system_prompt = """
-Ты — AI-помощник «Сома. Забота о себе.»
-Ты анализируешь дневниковые данные пользователя и формируешь отчёт о динамике.
-
-Ты не врач и не ставишь диагнозов.
-Используй только предоставленные данные.
-Будь поддерживающим и бережным.
-Отвечай на русском языке.
-
-ОТВЕЧАЙ ТОЛЬКО В ФОРМАТЕ JSON!
-НЕ ПИШИ НИКАКОГО ТЕКСТА ДО И ПОСЛЕ JSON.
-
-Структура ответа:
-{
-    "summary": "Общая картина за период (2-4 предложения)",
-    "mood_analysis": "Анализ настроения",
-    "energy_analysis": "Анализ энергии",
-    "tension_analysis": "Анализ напряжения тела",
-    "sleep_analysis": "Анализ сна",
-    "recurring_states": ["состояние 1", "состояние 2"],
-    "improvement_factors": ["фактор 1", "фактор 2"],
-    "decline_factors": ["фактор 1", "фактор 2"],
-    "progress": ["прогресс 1", "прогресс 2"],
-    "recommendations": ["рекомендация 1", "рекомендация 2"]
-}
-"""
+            # ==================== НОВЫЙ ПРОМПТ Сомы + ДИНАМИКА ====================
+            system_prompt = f"{SOMA_BASE_PROMPT}\n\n{'='*60}\n\n{DYNAMICS_PROMPT}"
+            # =====================================================================
 
             response = await self.client.generate(
                 system_prompt=system_prompt,
@@ -106,13 +79,12 @@ class DynamicsService:
                 max_tokens=3000,
             )
 
-            # Парсим JSON
             report_data = self._parse_response(response)
 
             if not report_data:
                 return self._create_fallback_report(start_date, end_date, len(events))
 
-            # ==================== ИСПРАВЛЕНО: получаем telegram_id ====================
+            # ==================== СОХРАНЯЕМ ОТЧЁТ ====================
             user_result = await self.db_session.execute(
                 select(User).where(User.id == user_id)
             )
@@ -121,7 +93,7 @@ class DynamicsService:
             if user_obj:
                 diary_service = DiaryEventService(self.db_session)
                 await diary_service.record_event(
-                    telegram_id=user_obj.telegram_id,  # ← ИСПРАВЛЕНО
+                    telegram_id=user_obj.telegram_id,
                     event_type="dynamics_report",
                     source="dynamics",
                     role="system",
@@ -133,7 +105,7 @@ class DynamicsService:
                         "report": report_data,
                     },
                 )
-            # ==========================================================================
+            # =========================================================
 
             return {
                 "success": True,
@@ -145,17 +117,14 @@ class DynamicsService:
             }
 
         except YandexGPTError as e:
-            logger.error(f"YandexGPT error in dynamics: {e}")
+            logger.error(f"YandexGPT error: {e}")
             return self._create_fallback_report(start_date, end_date, len(events))
-
         except Exception as e:
             logger.error(f"Error in dynamics: {e}")
             return self._create_fallback_report(start_date, end_date, len(events))
 
     def _parse_response(self, response: str) -> Optional[Dict[str, Any]]:
-        """Парсит JSON-ответ от YandexGPT."""
         try:
-            # Ищем JSON в ответе
             brace_count = 0
             start = -1
             for i, char in enumerate(response):
@@ -169,12 +138,10 @@ class DynamicsService:
                         json_str = response[start:i+1]
                         break
             else:
-                data = json.loads(response)
-                return data
+                return json.loads(response)
             
             data = json.loads(json_str)
             
-            # Проверяем обязательные поля
             required = ["summary", "mood_analysis", "energy_analysis", 
                        "tension_analysis", "sleep_analysis", "recurring_states",
                        "recommendations"]
@@ -185,11 +152,11 @@ class DynamicsService:
             return data
 
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error in dynamics: {e}")
+            logger.error(f"JSON decode error: {e}")
             logger.error(f"Response: {response[:500]}")
             return None
         except Exception as e:
-            logger.error(f"Error parsing dynamics response: {e}")
+            logger.error(f"Parse error: {e}")
             return None
 
     def _create_fallback_report(
@@ -198,7 +165,6 @@ class DynamicsService:
         end_date: date,
         events_count: int,
     ) -> Dict[str, Any]:
-        """Создаёт отчёт-заглушку при ошибке."""
         return {
             "success": True,
             "report": {

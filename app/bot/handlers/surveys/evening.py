@@ -1,6 +1,6 @@
 """
 Обработчик вечернего опроса.
-Сохраняет каждый ответ в DiaryEvent.
+Сохраняет каждый ответ в DiaryEvent с метриками.
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -28,6 +28,39 @@ from app.db.models.user import User
 from app.utils.logging import logger
 
 router = Router()
+
+
+def map_mood_evening(answer: str) -> int:
+    """Маппинг ответа 'Как себя чувствуешь' в mood."""
+    mapping = {
+        "Хорошо": 8,
+        "Нормально": 5,
+        "Тревожно": 3,
+        "Устало": 3,
+    }
+    return mapping.get(answer, 5)
+
+
+def map_energy_from_energy_source(answer: str) -> int:
+    """Маппинг 'Что дало энергию' → energy."""
+    mapping = {
+        "Сон": 8,
+        "Движение": 8,
+        "Еда": 7,
+        "Общение": 7,
+    }
+    return mapping.get(answer, 6)
+
+
+def map_energy_from_force_loss(answer: str) -> int:
+    """Маппинг 'Что забрало силы' → body_tension."""
+    mapping = {
+        "Работа": 7,
+        "Переживания": 8,
+        "Недосып": 7,
+        "Неправильное питание": 6,
+    }
+    return mapping.get(answer, 5)
 
 
 @router.message(F.text == "🌆 Вечерний опрос")
@@ -60,7 +93,7 @@ async def start_evening_survey(message: types.Message, state: FSMContext, db_ses
 
 @router.message(EveningSurveyStates.waiting_for_question_1, F.text)
 async def process_evening_q1(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 1."""
+    """Обработка вопроса 1: Как себя чувствуешь."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -74,6 +107,9 @@ async def process_evening_q1(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q1=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_2)
     
+    # ==================== МЕТРИКА: mood ====================
+    mood_value = map_mood_evening(answer)
+    
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
@@ -81,8 +117,12 @@ async def process_evening_q1(message: types.Message, state: FSMContext, db_sessi
         answer=answer,
         survey_type="evening",
         session_id=session_id,
-        payload={"question_number": 1},
+        payload={
+            "question_number": 1,
+            "mood": mood_value,
+        },
     )
+    # =======================================================
     
     await message.answer(
         "2️⃣ <b>Что сегодня сильнее всего повлияло на твоё состояние?</b>\n"
@@ -94,7 +134,7 @@ async def process_evening_q1(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(EveningSurveyStates.waiting_for_question_2, F.text)
 async def process_evening_q2(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 2."""
+    """Обработка вопроса 2: Что повлияло."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -128,7 +168,7 @@ async def process_evening_q2(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(EveningSurveyStates.waiting_for_question_3, F.text)
 async def process_evening_q3(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 3."""
+    """Обработка вопроса 3: Что дало энергию."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -142,6 +182,9 @@ async def process_evening_q3(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q3=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_4)
     
+    # ==================== МЕТРИКА: energy ====================
+    energy_value = map_energy_from_energy_source(answer)
+    
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
@@ -149,8 +192,12 @@ async def process_evening_q3(message: types.Message, state: FSMContext, db_sessi
         answer=answer,
         survey_type="evening",
         session_id=session_id,
-        payload={"question_number": 3},
+        payload={
+            "question_number": 3,
+            "energy": energy_value,
+        },
     )
+    # ========================================================
     
     await message.answer(
         "4️⃣ <b>Что забрало твои силы сегодня?</b>\n"
@@ -162,7 +209,7 @@ async def process_evening_q3(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(EveningSurveyStates.waiting_for_question_4, F.text)
 async def process_evening_q4(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 4."""
+    """Обработка вопроса 4: Что забрало силы."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -176,6 +223,9 @@ async def process_evening_q4(message: types.Message, state: FSMContext, db_sessi
     await state.update_data(q4=answer)
     await state.set_state(EveningSurveyStates.waiting_for_question_5)
     
+    # ==================== МЕТРИКА: body_tension ====================
+    body_tension_value = map_energy_from_force_loss(answer)
+    
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
@@ -183,8 +233,12 @@ async def process_evening_q4(message: types.Message, state: FSMContext, db_sessi
         answer=answer,
         survey_type="evening",
         session_id=session_id,
-        payload={"question_number": 4},
+        payload={
+            "question_number": 4,
+            "body_tension": body_tension_value,
+        },
     )
+    # ==============================================================
     
     await message.answer(
         "5️⃣ <b>Как прошёл день с точки зрения еды, сна и движения?</b>\n"
@@ -196,7 +250,7 @@ async def process_evening_q4(message: types.Message, state: FSMContext, db_sessi
 
 @router.message(EveningSurveyStates.waiting_for_question_5, F.text)
 async def process_evening_q5(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Обработка вопроса 5."""
+    """Обработка вопроса 5: Еда/сон/движение."""
     answer = message.text.strip()
     
     if answer == "❌ Отмена":
@@ -297,7 +351,10 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
             db_session=db_session,
         )
         
-        await loading_message.delete()
+        try:
+            await loading_message.delete()
+        except Exception:
+            pass
         
         if result["success"]:
             analysis = result["analysis"]
@@ -343,7 +400,10 @@ async def process_evening_clarification(message: types.Message, state: FSMContex
             )
             
     except Exception as e:
-        await loading_message.delete()
+        try:
+            await loading_message.delete()
+        except Exception:
+            pass
         logger.error(f"Error in evening survey: {e}")
         await message.answer(
             "😔 Произошла ошибка. Попробуйте позже.",
@@ -399,7 +459,7 @@ async def evening_callback_actions(callback: CallbackQuery, state: FSMContext):
 # ==================== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ====================
 
 def _format_evening_survey_analysis(analysis, survey_data: dict) -> str:
-    """Форматирует результат вечернего опроса с двумя подходами."""
+    """Форматирует результат вечернего опроса."""
     text = f"🌆 <b>Итоги дня</b>\n\n"
     
     text += f"📊 <b>Краткая сводка</b>\n"
@@ -422,20 +482,6 @@ def _format_evening_survey_analysis(analysis, survey_data: dict) -> str:
         for pattern in analysis.possible_patterns:
             text += f"• {pattern}\n"
         text += "\n"
-    
-    text += "🧠 <b>Тело говорит подсознанию</b> (по Синельникову)\n"
-    text += "Тело может отражать внутренние конфликты, невыраженные эмоции и бессознательные установки.\n"
-    
-    energy_source = survey_data.get('q3', '')
-    if 'общение' in energy_source.lower():
-        text += "• Общение может быть источником энергии.\n"
-    if 'еда' in energy_source.lower():
-        text += "• Еда — не только топливо, но и эмоциональный ресурс.\n"
-    text += "Важно: это возможная интерпретация для самонаблюдения.\n\n"
-    
-    text += "🔬 <b>Современный подход</b>\n"
-    text += "Современные исследования показывают, что вечернее состояние связано с накопленным стрессом "
-    text += "и качеством восстановления.\n"
     
     if analysis.check_question:
         text += f"\n❓ <b>Вопрос для самопроверки:</b>\n{analysis.check_question}\n"

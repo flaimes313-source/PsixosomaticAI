@@ -1,6 +1,6 @@
 """
 Обработчик дневного опроса.
-Сохраняет каждый ответ в DiaryEvent.
+Сохраняет каждый ответ в DiaryEvent с метриками.
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -23,6 +23,17 @@ from app.db.models.user import User
 from app.utils.logging import logger
 
 router = Router()
+
+
+def map_mood_day(answer: str) -> int:
+    """Маппинг ответа 'Как ты сейчас' в метрику mood."""
+    mapping = {
+        "Хорошо": 8,
+        "Нормально": 5,
+        "Тревожно": 3,
+        "Устало": 3,
+    }
+    return mapping.get(answer, 5)
 
 
 @router.message(F.text == "☀️ Дневной опрос")
@@ -69,6 +80,9 @@ async def process_day_q1(message: types.Message, state: FSMContext, db_session: 
     await state.update_data(q1=answer)
     await state.set_state(DaySurveyStates.waiting_for_question_2)
     
+    # ==================== МЕТРИКА: mood ====================
+    mood_value = map_mood_day(answer)
+    
     diary_service = DiaryEventService(db_session)
     await diary_service.record_survey_answer(
         telegram_id=message.from_user.id,
@@ -76,8 +90,12 @@ async def process_day_q1(message: types.Message, state: FSMContext, db_session: 
         answer=answer,
         survey_type="day",
         session_id=session_id,
-        payload={"question_number": 1},
+        payload={
+            "question_number": 1,
+            "mood": mood_value,
+        },
     )
+    # =======================================================
     
     await message.answer(
         "2️⃣ <b>Что изменилось с утра?</b>\n"
@@ -163,22 +181,21 @@ async def process_day_q3(message: types.Message, state: FSMContext, db_session: 
     if 'тревожно' in state_text or 'устало' in state_text:
         support_text += (
             "🧠 <b>Поддержка:</b>\n"
-            "Это нормально — чувствовать усталость или тревогу в течение дня. "
-            "Ты уже делаешь важный шаг — замечаешь своё состояние.\n\n"
+            "Это нормально — чувствовать усталость или тревогу в течение дня.\n\n"
             "🌱 <b>Маленькое действие:</b>\n"
             "Попробуй сделать 3 глубоких вдоха и выдоха прямо сейчас."
         )
     elif 'хорошо' in state_text or 'нормально' in state_text:
         support_text += (
             "🧠 <b>Поддержка:</b>\n"
-            "Отлично! Ты в хорошем состоянии. Это хороший знак.\n\n"
+            "Отлично! Ты в хорошем состоянии.\n\n"
             "🌱 <b>Маленькое действие:</b>\n"
             "Продолжай в том же духе."
         )
     else:
         support_text += (
             "🧠 <b>Поддержка:</b>\n"
-            "Спасибо, что поделился. Ты молодец, что отслеживаешь своё состояние.\n\n"
+            "Спасибо, что поделился.\n\n"
             "🌱 <b>Маленькое действие:</b>\n"
             "Сделай небольшой перерыв."
         )
