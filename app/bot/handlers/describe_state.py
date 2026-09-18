@@ -165,24 +165,38 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             )
             await state.set_state(DescribeStateStates.waiting_for_continue)
             
-            try:
-                await message.edit_text(
-                    text=dialog_text,
-                    reply_markup=get_continue_dialog_keyboard(),
-                    parse_mode="HTML",
-                )
-            except Exception as e:
-                logger.error(f"Error editing message: {e}")
-                await message.answer(
+            # ==================== РЕДАКТИРУЕМ СООБЩЕНИЕ БОТА ====================
+            if dialog_message_id:
+                try:
+                    await message.bot.edit_message_text(
+                        chat_id=message.chat.id,
+                        message_id=dialog_message_id,
+                        text=dialog_text,
+                        reply_markup=get_continue_dialog_keyboard(),
+                        parse_mode="HTML",
+                    )
+                except Exception as e:
+                    logger.error(f"Error editing dialog message: {e}")
+                    new_msg = await message.answer(
+                        dialog_text,
+                        reply_markup=get_continue_dialog_keyboard(),
+                        parse_mode="HTML",
+                    )
+                    await state.update_data(dialog_message_id=new_msg.message_id)
+            else:
+                new_msg = await message.answer(
                     dialog_text,
                     reply_markup=get_continue_dialog_keyboard(),
                     parse_mode="HTML",
                 )
+                await state.update_data(dialog_message_id=new_msg.message_id)
             
+            # Удаляем сообщение пользователя, чтобы не засорять чат
             try:
                 await message.delete()
             except Exception:
                 pass
+            # ===================================================================
             
             logger.info(f"Describe state completed: user={telegram_id}")
             
@@ -352,24 +366,38 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
             dialog_text=new_dialog_text,
         )
         
-        try:
-            await message.edit_text(
-                text=new_dialog_text,
-                reply_markup=get_continue_dialog_keyboard(),
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            logger.error(f"Error editing message: {e}")
-            await message.answer(
+        # ==================== РЕДАКТИРУЕМ СООБЩЕНИЕ БОТА ====================
+        if dialog_message_id:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=dialog_message_id,
+                    text=new_dialog_text,
+                    reply_markup=get_continue_dialog_keyboard(),
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                logger.error(f"Error editing dialog message: {e}")
+                new_msg = await message.answer(
+                    new_dialog_text,
+                    reply_markup=get_continue_dialog_keyboard(),
+                    parse_mode="HTML",
+                )
+                await state.update_data(dialog_message_id=new_msg.message_id)
+        else:
+            new_msg = await message.answer(
                 new_dialog_text,
                 reply_markup=get_continue_dialog_keyboard(),
                 parse_mode="HTML",
             )
+            await state.update_data(dialog_message_id=new_msg.message_id)
         
+        # Удаляем сообщение пользователя, чтобы не засорять чат
         try:
             await message.delete()
         except Exception:
             pass
+        # ===================================================================
         
     except Exception as e:
         try:
@@ -408,7 +436,8 @@ async def describe_finish(callback: CallbackQuery, state: FSMContext):
             reply_markup=None,
             parse_mode="HTML",
         )
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error editing final message: {e}")
         await callback.message.answer(
             final_text,
             reply_markup=None,
