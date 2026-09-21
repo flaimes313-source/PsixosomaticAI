@@ -27,6 +27,11 @@ class SurveyScheduler:
     DAY_HOUR = 13
     EVENING_HOUR = 20
     
+    # Окно отправки (в минутах от начала часа)
+    # Например, окно 15 минут означает, что опрос можно отправить
+    # с 08:00 до 08:15 включительно, если он ещё не отправлен.
+    SEND_WINDOW_MINUTES = 15
+    
     def __init__(
         self,
         session_maker: async_sessionmaker,
@@ -36,8 +41,9 @@ class SurveyScheduler:
         self.bot = bot
         self._running = False
         self._task: Optional[asyncio.Task] = None
-        # Для предотвращения дублей
-        self._sent_sessions = {}  # {key: datetime}
+        # Для предотвращения дублей в рамках одного запуска
+        # {key: datetime} — когда была успешная отправка
+        self._sent_sessions = {}
 
     async def start(self):
         """Запускает шедулер."""
@@ -66,7 +72,6 @@ class SurveyScheduler:
         logger.info("🔄 SurveyScheduler loop started")
         while self._running:
             try:
-                # Проверяем каждую минуту (60 секунд)
                 await self._check_and_send_surveys()
                 await asyncio.sleep(60)
                 
@@ -77,17 +82,9 @@ class SurveyScheduler:
                 await asyncio.sleep(60)
 
     async def _check_and_send_surveys(self):
-        """
-        Проверяет время у КАЖДОГО пользователя и отправляет опросы.
-        Больше НЕ проверяем серверный час — проверяем локальное время каждого пользователя.
-        """
+        """Проверяет время у КАЖДОГО пользователя и отправляет опросы."""
         now = datetime.now()
-        current_minute = now.minute
-        
         logger.info(f"⏰ Survey tick: {now.strftime('%H:%M:%S')}")
-        
-        # Проверяем каждую минуту
-        # (но отправляем только если у пользователя ровно 8:00, 13:00 или 20:00)
         await self._send_surveys_to_users()
 
     async def _send_surveys_to_users(self):
@@ -96,7 +93,6 @@ class SurveyScheduler:
         """
         try:
             async with self.session_maker() as session:
-                # Получаем всех активных пользователей
                 result = await session.execute(
                     select(User).where(
                         User.is_active == True,
@@ -112,7 +108,6 @@ class SurveyScheduler:
                 evening_sent = 0
                 
                 for user in users:
-                    # Получаем локальное время пользователя
                     try:
                         tz_str = user.timezone or "UTC"
                         try:
@@ -127,34 +122,41 @@ class SurveyScheduler:
                         logger.error(f"Error getting user timezone {user.telegram_id}: {e}")
                         continue
                     
-                    # ==================== ЛОГИРОВАНИЕ ====================
                     logger.info(
                         f"👤 User {user.telegram_id}: tz={tz_str}, "
                         f"local_time={user_now.strftime('%H:%M')}"
                     )
-                    # ======================================================
                     
-                    # Проверяем каждое время опроса
-                    # Утренний (8:00)
-                    if user_hour == self.MORNING_HOUR and user_minute == 0:
-                        if not await self._is_already_sent(user.telegram_id, "morning"):
-                            await self._send_survey_to_user(user, "morning")
-                            morning_sent += 1
-                            await asyncio.sleep(0.2)
+                    # ==================== УТРЕННИЙ ====================
+                    # Отправляем, если сейчас 8:00–8:15 и ещё не отправляли
+                    if (user_hour == self.MORNING_HOUR 
+                            and 0 <= user_minute < self.SEND_WINDOW_MINUTES):
+                        if not self._is_already_sent_today(user.telegram_id, "morning", user_now):
+                            success = await self._send_survey_to_user(user, "morning")
+                            if success:
+                                self._mark_as_sent(user.telegram_id, "morning")
+                                morning_sent += 1
+                                await asyncio.sleep(0.2)
                     
-                    # Дневной (13:00)
-                    elif user_hour == self.DAY_HOUR and user_minute == 0:
-                        if not await self._is_already_sent(user.telegram_id, "day"):
-                            await self._send_survey_to_user(user, "day")
-                            day_sent += 1
-                            await asyncio.sleep(0.2)
+                    # ==================== ДНЕВНОЙ ====================
+                    elif (user_hour == self.DAY_HOUR 
+                            and 0 <= user_minute < self.SEND_WINDOW_MINUTES):
+                        if not self._is_already_sent_today(user.telegram_id, "day", user_now):
+                            success = await self._send_survey_to_user(user, "day")
+                            if success:
+                                self._mark_as_sent(user.telegram_id, "day")
+                                day_sent += 1
+                                await asyncio.sleep(0.2)
                     
-                    # Вечерний (20:00)
-                    elif user_hour == self.EVENING_HOUR and user_minute == 0:
-                        if not await self._is_already_sent(user.telegram_id, "evening"):
-                            await self._send_survey_to_user(user, "evening")
-                            evening_sent += 1
-                            await asyncio.sleep(0.2)
+                    # ==================== ВЕЧЕРНИЙ ====================
+                    elif (user_hour == self.EVENING_HOUR 
+                            and 0 <= user_minute < self.SEND_WINDOW_MINUTES):
+                        if not self._is_already_sent_today(user.telegram_id, "evening", user_now):
+                            success = await self._send_survey_to_user(user, "evening")
+                            if success:
+                                self._mark_as_sent(user.telegram_id, "evening")
+                                evening_sent += 1
+                                await asyncio.sleep(0.2)
                 
                 if morning_sent > 0:
                     logger.info(f"✅ Morning surveys sent: {morning_sent}")
@@ -166,25 +168,39 @@ class SurveyScheduler:
         except Exception as e:
             logger.error(f"Error sending surveys: {e}")
 
-    async def _is_already_sent(self, telegram_id: int, survey_type: str) -> bool:
-        """Проверяет, не отправляли ли уже опрос в этом часе."""
+    def _is_already_sent_today(self, telegram_id: int, survey_type: str, user_now: datetime) -> bool:
+        """
+        Проверяет, отправляли ли уже этот тип опроса сегодня (по локальной дате пользователя).
+        Флаг хранится как (дата, время) — так мы не зависим от «30 минут».
+        """
         key = f"{telegram_id}_{survey_type}"
         last_sent = self._sent_sessions.get(key)
         
-        if last_sent:
-            # Если отправляли в течение последних 30 минут — считаем дублем
-            if (datetime.now() - last_sent).seconds < 1800:  # 30 минут
-                logger.info(f"⏭ Skipping duplicate {survey_type} for user {telegram_id}")
-                return True
+        if not last_sent:
+            return False
         
-        # Запоминаем время отправки
-        self._sent_sessions[key] = datetime.now()
+        # Сравниваем по локальной дате пользователя
+        if last_sent.date() == user_now.date():
+            logger.info(f"⏭ Already sent {survey_type} today for user {telegram_id}")
+            return True
+        
         return False
 
-    async def _send_survey_to_user(self, user: User, survey_type: str):
-        """Отправляет опрос одному пользователю."""
+    def _mark_as_sent(self, telegram_id: int, survey_type: str):
+        """
+        Помечает опрос как отправленный СЕГОДНЯ.
+        Вызывается ТОЛЬКО после успешной отправки.
+        """
+        key = f"{telegram_id}_{survey_type}"
+        self._sent_sessions[key] = datetime.now()
+        logger.info(f"📌 Marked {survey_type} as sent for user {telegram_id}")
+
+    async def _send_survey_to_user(self, user: User, survey_type: str) -> bool:
+        """
+        Отправляет опрос одному пользователю.
+        Возвращает True при успехе, False при ошибке.
+        """
         try:
-            # Определяем текст опроса
             if survey_type == "morning":
                 text = self._get_morning_survey_text()
             elif survey_type == "day":
@@ -192,9 +208,8 @@ class SurveyScheduler:
             elif survey_type == "evening":
                 text = self._get_evening_survey_text()
             else:
-                return
+                return False
             
-            # Отправляем сообщение с кнопкой
             keyboard = self._get_survey_start_keyboard(survey_type)
             
             await self.bot.send_message(
@@ -205,9 +220,11 @@ class SurveyScheduler:
             )
             
             logger.info(f"✅ {survey_type} survey sent to user {user.telegram_id}")
+            return True
             
         except Exception as e:
-            logger.error(f"Error sending {survey_type} survey to {user.telegram_id}: {e}")
+            logger.error(f"❌ Error sending {survey_type} survey to {user.telegram_id}: {e}")
+            return False
 
     def _get_survey_start_keyboard(self, survey_type: str):
         """Возвращает клавиатуру для запуска опроса."""
