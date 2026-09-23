@@ -19,7 +19,10 @@ from . import describe_state as describe_state_handler
 from . import diary as diary_handler
 from . import survey_launcher
 
-# Опросники
-from .surveys import morning as morning_survey_handler
-from .surveys import day as day_survey_handler
-from .surveys import evening as evening_survey_handler
+# Опросники — ВРЕМЕННО ОТКЛЮЧЕНО:
+# опросы заменены на одно утреннее сообщение от SurveyScheduler.
+# Файлы morning.py, day.py, evening.py остаются на диске,
+# но не импортируются — чтобы не тянуть удалённые промпты из ai_service.
+# from .surveys import morning as morning_survey_handler
+# from .surveys import day as day_survey_handler
+# from .surveys import evening as evening_survey_handler
