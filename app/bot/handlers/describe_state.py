@@ -25,11 +25,18 @@ from app.utils.logging import logger
 router = Router()
 
 
-@router.message(F.text == "📝 Описать состояние")
-async def start_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
-    """Запускает сценарий «Описать состояние»."""
-    logger.info("=== DESCRIBE_STATE v3 — DEPLOY CHECK ===")
-    logger.info(f"User requested describe state via button: telegram_id={message.from_user.id}")
+# ==================== ОБЩАЯ ЛОГИКА ЗАПУСКА ====================
+
+async def _start_describe_state_flow(
+    message: types.Message,
+    state: FSMContext,
+    db_session: AsyncSession,
+):
+    """
+    Общая логика запуска сценария «Описать состояние».
+    Используется и текстовой кнопкой, и callback'ом из утреннего сообщения.
+    """
+    logger.info(f"User requested describe state: telegram_id={message.from_user.id}")
 
     await state.clear()
 
@@ -77,6 +84,29 @@ async def start_describe_state(message: types.Message, state: FSMContext, db_ses
     await state.update_data(dialog_message_id=dialog_message.message_id)
     logger.info(f"User started describe state: {telegram_id}, session={session_id}")
 
+
+# ==================== ЗАПУСК: ТЕКСТОВАЯ КНОПКА ====================
+
+@router.message(F.text == "📝 Описать состояние")
+async def start_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
+    """Запускает сценарий «Описать состояние» по текстовой кнопке."""
+    await _start_describe_state_flow(message, state, db_session)
+
+
+# ==================== ЗАПУСК: CALLBACK ИЗ УТРЕННЕГО СООБЩЕНИЯ ====================
+
+@router.callback_query(F.data == "survey_start_morning")
+async def start_describe_state_from_morning(
+    callback: CallbackQuery,
+    state: FSMContext,
+    db_session: AsyncSession,
+):
+    """Запускает сценарий «Описать состояние» по callback'у из утреннего сообщения."""
+    await callback.answer()
+    await _start_describe_state_flow(callback.message, state, db_session)
+
+
+# ==================== ОСНОВНОЙ СЦЕНАРИЙ ====================
 
 @router.message(DescribeStateStates.waiting_for_description, F.text)
 async def process_describe_state(message: types.Message, state: FSMContext, db_session: AsyncSession):
@@ -287,22 +317,9 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
             context += f"{role}: {msg.get('content')}\n"
 
         from app.services.yandex_gpt import YandexGPTClient
+        from app.services.ai_service import SOMA_BASE_PROMPT
 
-        system_prompt = """
-Ты — AI-помощник «Сома. Забота о себе.»
-
-Вы продолжаете диалог. Пользователь уже описал своё состояние, и ты ответил.
-
-Теперь пользователь задаёт новый вопрос или уточнение.
-
-Отвечай естественно, как в живом разговоре. Учитывай предыдущий диалог.
-
-Ты не врач, не психотерапевт и не ставишь диагнозов.
-Твоя задача — бережное сопровождение и поддержка.
-
-Не используй JSON. Не используй шаблоны.
-Будь дружелюбным, тёплым, поддерживающим.
-"""
+        system_prompt = SOMA_BASE_PROMPT
 
         user_prompt = f"""
 ИСТОРИЯ ДИАЛОГА

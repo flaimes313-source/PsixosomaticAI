@@ -27,11 +27,12 @@ from app.bot.handlers import (
     how_it_works_handler,
     describe_state_handler,
     diary_handler,
-    survey_launcher,  # ← ДОБАВЛЕНО
+    survey_launcher,
 )
-from app.bot.handlers.surveys import morning as morning_survey_handler
-from app.bot.handlers.surveys import day as day_survey_handler
-from app.bot.handlers.surveys import evening as evening_survey_handler
+# ВРЕМЕННО ОТКЛЮЧЕНО: опросы заменены на одно утреннее сообщение
+# from app.bot.handlers.surveys import morning as morning_survey_handler
+# from app.bot.handlers.surveys import day as day_survey_handler
+# from app.bot.handlers.surveys import evening as evening_survey_handler
 from app.bot.errors import router as errors_router
 from app.api.server import app as fastapi_app
 from app.db.database import check_db_connection, engine, async_session_maker
@@ -59,16 +60,16 @@ async def setup_bot_commands(bot: Bot) -> None:
 
 async def main() -> None:
     logger.info("Starting Soma Bot...")
-    
+
     if not await check_db_connection():
         logger.error("Database connection failed! Exiting...")
         sys.exit(1)
-    
+
     bot = Bot(token=config_settings.BOT_TOKEN)
     dp = Dispatcher()
-    
+
     dp.update.middleware(DBSessionMiddleware())
-    
+
     # ==================== РЕГИСТРАЦИЯ РОУТЕРОВ ====================
     dp.include_router(start.router)
     dp.include_router(menu.router)
@@ -82,29 +83,38 @@ async def main() -> None:
     dp.include_router(support_handler.router)
     dp.include_router(profile_handler.router)
     dp.include_router(how_it_works_handler.router)
+
+    # ВАЖНО: describe_state ДО survey_launcher — чтобы 'survey_start_morning'
+    # перехватывался именно здесь
     dp.include_router(describe_state_handler.router)
+
     dp.include_router(diary_handler.router)
-    dp.include_router(morning_survey_handler.router)
-    dp.include_router(day_survey_handler.router)
-    dp.include_router(evening_survey_handler.router)
-    dp.include_router(survey_launcher.router)  # ← ДОБАВЛЕНО
+
+    # ВРЕМЕННО ОТКЛЮЧЕНО: опросы заменены на одно утреннее сообщение
+    # dp.include_router(morning_survey_handler.router)
+    # dp.include_router(day_survey_handler.router)
+    # dp.include_router(evening_survey_handler.router)
+
+    # Обрабатывает «хвосты» старых callback'ов (survey_start_day/evening, survey_skip_*)
+    dp.include_router(survey_launcher.router)
+
     dp.include_router(cancel.router)
     dp.include_router(history.router)
     dp.include_router(errors_router)
-    
+
     await setup_bot_commands(bot)
-    
+
     reminder_service = ReminderService(async_session_maker, bot)
     await reminder_service.start()
-    
+
     reconciliation_service = PaymentReconciliationService(async_session_maker)
     await reconciliation_service.start()
-    
+
     survey_scheduler = SurveyScheduler(async_session_maker, bot)
     await survey_scheduler.start()
-    
+
     fastapi_app.include_router(yookassa_webhook_router)
-    
+
     config = uvicorn.Config(
         fastapi_app,
         host=config_settings.API_HOST,
@@ -113,7 +123,7 @@ async def main() -> None:
     )
     server = uvicorn.Server(config)
     fastapi_task = asyncio.create_task(server.serve())
-    
+
     try:
         await dp.start_polling(bot)
     finally:
