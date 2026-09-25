@@ -46,13 +46,13 @@ def get_pro_main_keyboard(is_pro: bool, with_back_to_profile: bool = False) -> I
         ])
         buttons.append([
             InlineKeyboardButton(
-                text="⭐ 3 месяца — 1 290 ₽",
+                text="⭐ 3 месяца — 1 290 ₽ (экономия 180 ₽)",
                 callback_data="pro_buy_3m"
             )
         ])
         buttons.append([
             InlineKeyboardButton(
-                text="⭐ 6 месяцев — 2 290 ₽",
+                text="⭐ 6 месяцев — 2 290 ₽ (экономия 650 ₽)",
                 callback_data="pro_buy_6m"
             )
         ])
@@ -150,7 +150,13 @@ def _get_pro_text(is_pro: bool = False) -> str:
     if is_pro:
         text += "\n\n✅ <b>У тебя активен PRO.</b>"
     else:
-        text += "\n\n━━━━━━━━━━━━━━━━━━━\n\n<b>Выбери период:</b>"
+        text += (
+            "\n\n━━━━━━━━━━━━━━━━━━━\n\n"
+            "<b>Выбери период:</b>\n\n"
+            "⭐ 1 месяц — 490 ₽\n"
+            "⭐ 3 месяца — 1 290 ₽ <i>(экономия 180 ₽)</i>\n"
+            "⭐ 6 месяцев — 2 290 ₽ <i>(экономия 650 ₽)</i>"
+        )
 
     return text
 
