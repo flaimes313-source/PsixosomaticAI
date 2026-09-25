@@ -141,9 +141,9 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
     
     if not events:
         await message.answer(
-            "📔 <b>Сегодня записей пока нет</b>\n\n"
+            "📔 Сегодня записей пока нет\n"
             "Начни с кнопки 📝 Описать состояние\n"
-            "или дождись опросов (утро/день/вечер).",
+            "и расскажи, что сейчас происходит.",
             reply_markup=get_diary_menu_keyboard(),
             parse_mode="HTML",
         )
