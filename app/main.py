@@ -29,7 +29,7 @@ from app.bot.handlers import (
     diary_handler,
     survey_launcher,
 )
-# ВРЕМЕННО ОТКЛЮЧЕНО: опросы заменены на одно утреннее сообщение
+# ВРЕМЕННО ОТКЛЮЧЕНО: опросы заменены на одно утреннее сообщение через ReminderService
 # from app.bot.handlers.surveys import morning as morning_survey_handler
 # from app.bot.handlers.surveys import day as day_survey_handler
 # from app.bot.handlers.surveys import evening as evening_survey_handler
@@ -39,7 +39,8 @@ from app.db.database import check_db_connection, engine, async_session_maker
 from app.services.reminder_service import ReminderService
 from app.services.subscription_service import SubscriptionService
 from app.services.payment_reconciliation_service import PaymentReconciliationService
-from app.services.survey_scheduler import SurveyScheduler
+# ВРЕМЕННО ОТКЛЮЧЕНО: SurveyScheduler больше не используется
+# from app.services.survey_scheduler import SurveyScheduler
 from app.webhooks.yookassa import router as yookassa_webhook_router
 
 
@@ -95,7 +96,7 @@ async def main() -> None:
     # dp.include_router(day_survey_handler.router)
     # dp.include_router(evening_survey_handler.router)
 
-    # Обрабатывает «хвосты» старых callback'ов (survey_start_day/evening, survey_skip_*)
+    # Обрабатывает «хвосты» старых callback'ов
     dp.include_router(survey_launcher.router)
 
     dp.include_router(cancel.router)
@@ -104,14 +105,17 @@ async def main() -> None:
 
     await setup_bot_commands(bot)
 
+    # ==================== ФОНОВЫЕ СЕРВИСЫ ====================
+    # ReminderService теперь отвечает за утреннее сообщение
     reminder_service = ReminderService(async_session_maker, bot)
     await reminder_service.start()
 
     reconciliation_service = PaymentReconciliationService(async_session_maker)
     await reconciliation_service.start()
 
-    survey_scheduler = SurveyScheduler(async_session_maker, bot)
-    await survey_scheduler.start()
+    # ВРЕМЕННО ОТКЛЮЧЕНО: SurveyScheduler больше не нужен
+    # survey_scheduler = SurveyScheduler(async_session_maker, bot)
+    # await survey_scheduler.start()
 
     fastapi_app.include_router(yookassa_webhook_router)
 
@@ -130,7 +134,7 @@ async def main() -> None:
         fastapi_task.cancel()
         await reminder_service.stop()
         await reconciliation_service.stop()
-        await survey_scheduler.stop()
+        # await survey_scheduler.stop()   # ← ОТКЛЮЧЕНО
         await bot.session.close()
         await engine.dispose()
 

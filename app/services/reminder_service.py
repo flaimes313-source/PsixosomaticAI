@@ -1,7 +1,9 @@
 """
-Сервис для управления напоминаниями и их отправки.
+Сервис для отправки утреннего сообщения «Описать состояние».
+Работает вместо SurveyScheduler — настраивается через профиль.
 """
 import asyncio
+import random
 from datetime import datetime, time, timedelta, date
 from typing import Optional, List
 from zoneinfo import ZoneInfo
@@ -15,7 +17,40 @@ from app.utils.logging import logger
 
 
 class ReminderService:
-    """Сервис для работы с напоминаниями."""
+    """Сервис для отправки утреннего сообщения «Описать состояние»."""
+
+    # Варианты утреннего сообщения (выбираются случайно)
+    MORNING_TEXTS = [
+        (
+            "🌿 Доброе утро. Как ты сегодня?\n\n"
+            "Если захочешь, просто опиши своё состояние своими словами. "
+            "Сома поможет разобраться."
+        ),
+        (
+            "🌅 Утро. Как ты?\n\n"
+            "Если есть что-то, чем хочется поделиться — напиши. Сома рядом."
+        ),
+        (
+            "☀️ Доброе утро. Как ты себя чувствуешь?\n\n"
+            "Опиши, если хочешь — без правил и форматов."
+        ),
+        (
+            "🌿 Новое утро. Как ты?\n\n"
+            "Если что-то беспокоит или радует — расскажи. Сома поможет разобраться."
+        ),
+        (
+            "🌅 С добрым утром. Как ты сегодня?\n\n"
+            "Можешь просто написать, что происходит — своими словами."
+        ),
+        (
+            "☀️ Доброе утро. Как ты?\n\n"
+            "Начни с того, что сейчас важнее всего — Сома поможет разобраться."
+        ),
+        (
+            "🌿 Утро. Как ты?\n\n"
+            "Если хочешь, опиши своё состояние — Сома рядом и готова слушать."
+        ),
+    ]
 
     def __init__(self, session_factory: async_sessionmaker, bot):
         self.session_factory = session_factory
@@ -80,19 +115,20 @@ class ReminderService:
                 reminder_hour = settings.reminder_time.hour
                 reminder_minute = settings.reminder_time.minute
 
-                if (user_time.hour == reminder_hour and 
-                    abs(user_time.minute - reminder_minute) <= 1):
+                # Окно ±1 минута
+                if (user_time.hour == reminder_hour and
+                        abs(user_time.minute - reminder_minute) <= 1):
 
                     if settings.days_of_week is not None and len(settings.days_of_week) > 0:
                         if user_weekday not in settings.days_of_week:
                             continue
 
-                    await self._send_reminder(settings.user_id, session)
+                    await self._send_morning_message(settings.user_id, session)
                     await reminder_repo.update_last_sent(settings.user_id)
 
-    async def _send_reminder(self, user_id: int, session: AsyncSession):
+    async def _send_morning_message(self, user_id: int, session: AsyncSession):
+        """Отправляет утреннее сообщение «Описать состояние»."""
         try:
-            # ==================== ИСПРАВЛЕНО: получаем пользователя ====================
             result = await session.execute(
                 select(User).where(User.telegram_id == user_id)
             )
@@ -101,37 +137,16 @@ class ReminderService:
             if not user:
                 logger.warning(f"User {user_id} not found for reminder")
                 return
-            # ==========================================================================
 
-            # ==================== ИСПРАВЛЕНО: используем новый DiaryRepository =========
-            diary_repo = DiaryRepository(session)
-            today = date.today()
-            # Получаем события за сегодня (внутренний ID пользователя)
-            today_events = await diary_repo.get_events_by_date(user.id, today)
-            # ==========================================================================
-
-            if today_events:
-                message = (
-                    "📔 <b>Дневник</b>\n\n"
-                    "Ты уже отметил состояние сегодня. 👀\n"
-                    "Хочешь добавить ещё одну запись?\n\n"
-                    "Нажми кнопку ниже:"
-                )
-            else:
-                message = (
-                    "📔 <b>Дневник</b>\n\n"
-                    "Как ты себя чувствуешь сегодня?\n"
-                    "Отметь состояние — это займёт около минуты. 🧠\n\n"
-                    "Нажми кнопку ниже:"
-                )
+            text = random.choice(self.MORNING_TEXTS)
 
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(
-                        text="📔 Заполнить дневник",
-                        callback_data="reminder_open_diary"
+                        text="🌿 Описать состояние",
+                        callback_data="reminder_open_describe"
                     )],
                     [InlineKeyboardButton(
                         text="🔕 Отключить напоминания",
@@ -142,12 +157,12 @@ class ReminderService:
 
             await self.bot.send_message(
                 chat_id=user_id,
-                text=message,
+                text=text,
                 reply_markup=keyboard,
                 parse_mode="HTML",
             )
 
-            logger.info(f"✅ Reminder sent to user {user_id}")
+            logger.info(f"✅ Morning message sent to user {user_id}")
 
         except Exception as e:
-            logger.error(f"❌ Error sending reminder to user {user_id}: {e}")
+            logger.error(f"❌ Error sending morning message to user {user_id}: {e}")

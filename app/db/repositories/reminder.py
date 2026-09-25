@@ -24,28 +24,31 @@ class ReminderRepository:
             select(ReminderSettings).where(ReminderSettings.user_id == user_id)
         )
         settings = result.scalar_one_or_none()
-        
+
         if not settings:
-            # 🔥 БЕРЁМ ЧАСОВОЙ ПОЯС ИЗ ТАБЛИЦЫ USERS
+            # Берём часовой пояс из таблицы users
             user_result = await self.session.execute(
                 select(User).where(User.telegram_id == user_id)
             )
             user = user_result.scalar_one_or_none()
             user_timezone = user.timezone if user and user.timezone else "UTC"
-            
+
             settings = ReminderSettings(
                 user_id=user_id,
-                enabled=False,
-                reminder_time=None,
-                timezone=user_timezone,  # ← АВТОМАТИЧЕСКИ СТАВИМ ТОТ ЖЕ, ЧТО У ПОЛЬЗОВАТЕЛЯ
-                days_of_week=None,
+                enabled=True,                  # ← ДЕФОЛТ: утреннее сообщение включено
+                reminder_time=time(9, 0),      # ← ДЕФОЛТ: 09:00
+                timezone=user_timezone,
+                days_of_week=None,             # ← каждый день
                 last_reminder_sent_at=None
             )
             self.session.add(settings)
             await self.session.commit()
             await self.session.refresh(settings)
-            logger.info(f"Created reminder settings for user {user_id} with timezone {user_timezone}")
-        
+            logger.info(
+                f"Created reminder settings for user {user_id} "
+                f"with timezone {user_timezone}, enabled=True, time=09:00"
+            )
+
         return settings
 
     async def get_by_user_id(self, user_id: int) -> Optional[ReminderSettings]:
@@ -67,7 +70,7 @@ class ReminderRepository:
         settings = await self.get_by_user_id(user_id)
         if not settings:
             settings = await self.get_or_create(user_id)
-        
+
         if enabled is not None:
             settings.enabled = enabled
         if reminder_time is not None:
@@ -76,11 +79,11 @@ class ReminderRepository:
             settings.timezone = timezone
         if days_of_week is not None:
             settings.days_of_week = days_of_week
-        
+
         settings.updated_at = func.now()
         await self.session.commit()
         await self.session.refresh(settings)
-        
+
         logger.info(f"Updated reminder settings for user {user_id}")
         return settings
 
@@ -117,7 +120,7 @@ class ReminderRepository:
         settings = await self.get_by_user_id(user_id)
         if not settings or not settings.last_reminder_sent_at:
             return False
-        
+
         # Используем timezone пользователя для определения "сегодня"
         try:
             from zoneinfo import ZoneInfo
