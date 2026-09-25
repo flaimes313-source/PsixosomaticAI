@@ -1,6 +1,6 @@
 """
 Сервис для управления доступом к функциям бота.
-Поддерживает: FREE, PRO_TRIAL (3 дня), PRO (платный).
+Поддерживает: FREE, PRO_TRIAL (3 дня), PRO (платный), whitelist.
 """
 from typing import Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +43,13 @@ class AccessService:
         )
         return result.scalar_one_or_none()
 
+    async def _is_whitelist(self, telegram_id: int) -> bool:
+        """Проверяет, есть ли пользователь в whitelist."""
+        result = await self.db_session.execute(
+            select(ProWhitelist).where(ProWhitelist.user_id == telegram_id)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def _get_current_month(self) -> str:
         """Получить текущий месяц в формате YYYY-MM."""
         return datetime.now().strftime("%Y-%m")
@@ -59,10 +66,7 @@ class AccessService:
         Учитывает: whitelist, PRO_TRIAL, платный PRO.
         """
         # 1. Белый список — всегда PRO
-        result = await self.db_session.execute(
-            select(ProWhitelist).where(ProWhitelist.user_id == user_id)
-        )
-        if result.scalar_one_or_none():
+        if await self._is_whitelist(user_id):
             logger.info(f"User {user_id} is PRO via whitelist")
             return True
 
@@ -104,22 +108,33 @@ class AccessService:
         """
         Запускает 3-дневный пробный PRO, если пользователь ещё не использовал trial.
 
+        ВАЖНО:
+        - Whitelist-пользователи trial НЕ получают.
+        - Пользователи с активной платной подпиской trial НЕ получают.
+        - Повторно trial не даётся (trial_used=True).
+
         Returns:
             (started, message) — started=True, если trial был запущен сейчас;
-                                 started=False, если уже использован/активен.
+                                 started=False, если уже использован/активен/whitelist.
         """
         user = await self._get_user(telegram_id)
         if not user:
             return False, "Пользователь не найден"
+
+        # 0. Whitelist — trial не нужен
+        if await self._is_whitelist(telegram_id):
+            logger.info(f"User {telegram_id} is in whitelist, skipping trial")
+            return False, "Whitelist user"
 
         # 1. Уже был trial?
         if user.trial_used:
             logger.info(f"User {telegram_id} already used trial")
             return False, "Trial already used"
 
-        # 2. Уже есть активная подписка (платная)?
+        # 2. Уже есть активная платная подписка?
         existing = await self.subscription_repo.get_active_subscription(telegram_id)
         if existing and existing.status == SubscriptionStatus.ACTIVE:
+            logger.info(f"User {telegram_id} already has active PRO, skipping trial")
             return False, "Already PRO"
 
         # 3. Запускаем trial
@@ -145,7 +160,7 @@ class AccessService:
         """
         Может ли пользователь начать НОВЫЙ диалог «Описать состояние».
         """
-        # 1. PRO или trial — всегда можно
+        # 1. PRO, trial или whitelist — всегда можно
         if await self.is_pro(telegram_id):
             return True, ""
 
@@ -253,10 +268,7 @@ class AccessService:
 
     async def get_plan_info(self, user_id: int) -> dict:
         """Получить информацию о плане пользователя."""
-        result = await self.db_session.execute(
-            select(ProWhitelist).where(ProWhitelist.user_id == user_id)
-        )
-        if result.scalar_one_or_none():
+        if await self._is_whitelist(user_id):
             return {
                 "plan": PlanType.PRO,
                 "status": SubscriptionStatus.ACTIVE,
