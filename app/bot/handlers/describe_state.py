@@ -2,6 +2,12 @@
 Обработчик для кнопки «📝 Описать состояние».
 Полноценный диалог с живым AI-ответом (без JSON, без шаблонов).
 Сохраняет всё в DiaryEvent.
+
+Логика доступа:
+- Первый вход → 3-дневный trial (PRO_TRIAL)
+- В trial / PRO → безлимит
+- После trial → 1 бесплатный диалог + 3 уточнения
+- После использования → предложение PRO
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -25,6 +31,24 @@ from app.utils.logging import logger
 router = Router()
 
 
+# ==================== КЛАВИАТУРА «КУПИТЬ PRO» ====================
+
+def get_pro_offer_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура с предложением купить PRO."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="⭐ Купить PRO",
+                callback_data="pro_from_reminder"
+            )],
+            [InlineKeyboardButton(
+                text="↩️ Назад",
+                callback_data="describe_back_to_menu"
+            )],
+        ]
+    )
+
+
 # ==================== ОБЩАЯ ЛОГИКА ЗАПУСКА ====================
 
 async def _start_describe_state_flow(
@@ -41,18 +65,39 @@ async def _start_describe_state_flow(
     await state.clear()
 
     telegram_id = message.from_user.id
-
     access_service = AccessService(db_session)
-    can_use, limit_message = await access_service.can_use_body_analysis(telegram_id)
 
-    if not can_use:
+    # ==================== 1. ПЕРВЫЙ ВХОД → ЗАПУСК TRIAL ====================
+    started, _ = await access_service.start_trial_if_needed(telegram_id)
+    if started:
+        logger.info(f"🎁 Trial started for user {telegram_id}")
+        await message.answer(
+            "🎁 <b>Тебе открыт пробный PRO на 3 дня!</b>\n\n"
+            "В эти дни доступны:\n"
+            "♾️ неограниченные диалоги\n"
+            "♾️ неограниченные уточняющие вопросы\n\n"
+            "Просто опиши своё состояние — Сома поможет разобраться.",
+            parse_mode="HTML",
+        )
+
+    # ==================== 2. ПРОВЕРКА ДОСТУПА ====================
+    can_start, limit_message = await access_service.can_start_new_describe_dialog(telegram_id)
+
+    if not can_start:
+        # Нельзя начать новый диалог — показываем PRO-предложение
         await message.answer(
             limit_message,
-            reply_markup=get_pro_locked_keyboard(),
+            reply_markup=get_pro_offer_keyboard(),
             parse_mode="HTML",
         )
         return
 
+    # ==================== 3. СБРОС СЧЁТЧИКА УТОЧНЕНИЙ ====================
+    # Если пользователь FREE и запускает новый бесплатный диалог — счётчик в 0
+    if not await access_service.is_pro(telegram_id):
+        await access_service.reset_free_dialog_counter(telegram_id)
+
+    # ==================== 4. СТАРТ СЕССИИ ====================
     session_id = str(uuid.uuid4())
 
     await state.update_data(
@@ -166,9 +211,6 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             answer = result["answer"]
             analysis_id = result.get("analysis_id")
 
-            access_service = AccessService(db_session)
-            await access_service.increment_body_analysis(telegram_id)
-
             # ==================== СОХРАНЯЕМ ОТВЕТ AI ====================
             await diary_service.record_ai_response(
                 telegram_id=telegram_id,
@@ -210,7 +252,7 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
                     )
                     logger.info(f"Dialog message edited successfully: id={dialog_message_id}")
                 except Exception as e:
-                    logger.warning(f"edit_message_text failed ({e}), fallback: удаляем старое + отправляем новое")
+                    logger.warning(f"edit_message_text failed ({e}), fallback")
                     try:
                         await message.bot.delete_message(
                             chat_id=message.chat.id,
@@ -284,6 +326,28 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         )
         await state.clear()
         return
+
+    access_service = AccessService(db_session)
+
+    # ==================== ПРОВЕРКА ЛИМИТА УТОЧНЕНИЙ (только для FREE) ====================
+    can_continue, limit_message = await access_service.can_continue_free_dialog(telegram_id)
+
+    if not can_continue:
+        # Лимит исчерпан — завершаем диалог и показываем PRO
+        await state.clear()
+        try:
+            await message.delete()
+        except Exception:
+            pass
+
+        await message.answer(
+            limit_message,
+            reply_markup=get_pro_offer_keyboard(),
+            parse_mode="HTML",
+        )
+        logger.info(f"Free dialog limit reached for user {telegram_id}")
+        return
+    # ====================================================================================
 
     data = await state.get_data()
     session_id = data.get("session_id")
@@ -393,6 +457,17 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
             dialog_text=new_dialog_text,
         )
 
+        # ==================== УВЕЛИЧИВАЕМ СЧЁТЧИК УТОЧНЕНИЙ (только для FREE) ====================
+        is_pro = await access_service.is_pro(telegram_id)
+        if not is_pro:
+            new_count = await access_service.increment_free_question(telegram_id)
+
+            # Если достигли лимита (3) — завершаем бесплатный диалог
+            if new_count >= 3:
+                await access_service.finish_free_dialog(telegram_id)
+                logger.info(f"Free dialog finished for user {telegram_id} (3 questions reached)")
+        # ========================================================================================
+
         # ==================== РЕДАКТИРУЕМ/ПЕРЕСОЗДАЁМ СООБЩЕНИЕ БОТА ====================
         new_msg = None
         if dialog_message_id:
@@ -406,7 +481,7 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
                 )
                 logger.info(f"Dialog message edited successfully: id={dialog_message_id}")
             except Exception as e:
-                logger.warning(f"edit_message_text failed ({e}), fallback: удаляем старое + отправляем новое")
+                logger.warning(f"edit_message_text failed ({e}), fallback")
                 try:
                     await message.bot.delete_message(
                         chat_id=message.chat.id,
@@ -456,9 +531,20 @@ async def continue_dialog_invalid(message: types.Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "describe_finish")
-async def describe_finish(callback: CallbackQuery, state: FSMContext):
+async def describe_finish(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Завершение диалога."""
     await callback.answer("Диалог завершён")
+
+    telegram_id = callback.from_user.id
+    access_service = AccessService(db_session)
+
+    # ==================== ЕСЛИ FREE — ПОМЕЧАЕМ ДИАЛОГ КАК ИСПОЛЬЗОВАННЫЙ ====================
+    if not await access_service.is_pro(telegram_id):
+        user = await access_service._get_user(telegram_id)
+        if user and not user.free_dialog_used:
+            await access_service.finish_free_dialog(telegram_id)
+            logger.info(f"Free dialog marked as used (via finish) for user {telegram_id}")
+    # ========================================================================================
 
     data = await state.get_data()
     dialog_message_id = data.get("dialog_message_id")

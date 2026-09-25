@@ -1,5 +1,6 @@
 """
 Сервис для управления платежами.
+Поддерживает 3 тарифа PRO (1м / 3м / 6м).
 """
 from decimal import Decimal
 from datetime import datetime, timedelta
@@ -22,20 +23,27 @@ from app.config import settings
 class PaymentService:
     """Сервис для управления платежами."""
 
-    def __init__(self, db_session: AsyncSession, bot=None):  # ← ДОБАВЛЕН bot
+    def __init__(self, db_session: AsyncSession, bot=None):
         self.db_session = db_session
         self.payment_repo = PaymentRepository(db_session)
         self.subscription_repo = SubscriptionRepository(db_session)
         self.yookassa = YooKassaService()
         self.access_service = AccessService(db_session)
-        self.bot = bot  # ← СОХРАНЯЕМ bot
+        self.bot = bot
 
     async def create_pro_payment(
         self,
         user_id: int,
+        days: int = None,
+        amount: int = None,
     ) -> Dict[str, Any]:
         """
         Создать платёж для PRO.
+
+        Args:
+            user_id: Telegram ID
+            days: длительность подписки в днях (по умолчанию из settings)
+            amount: сумма в рублях (по умолчанию из settings)
         """
         result = await self.db_session.execute(
             select(User).where(User.telegram_id == user_id)
@@ -45,21 +53,34 @@ class PaymentService:
             return {"success": False, "error": "Пользователь не найден"}
 
         subscription = await self.subscription_repo.get_by_user_id(user_id)
-        
-        amount = Decimal(str(settings.PRO_PRICE_RUB))
+
+        # Если days/amount не переданы — берём из settings (дефолт)
+        duration_days = days if days is not None else settings.PRO_DURATION_DAYS
+        price_rub = amount if amount is not None else settings.PRO_PRICE_RUB
+
+        amount_decimal = Decimal(str(price_rub))
         currency = "RUB"
-        duration_days = settings.PRO_DURATION_DAYS
 
         import uuid
         idempotence_key = str(uuid.uuid4())
 
+        # Определяем текстовое описание тарифа
+        if duration_days >= 180:
+            tariff_label = "6 месяцев"
+        elif duration_days >= 90:
+            tariff_label = "3 месяца"
+        else:
+            tariff_label = "1 месяц"
+
+        description = f"Psychosomatic PRO — {tariff_label}"
+
         payment = await self.payment_repo.create(
             user_id=user_id,
-            amount=amount,
+            amount=amount_decimal,
             currency=currency,
             plan="pro",
             duration_days=duration_days,
-            description=f"Psychosomatic PRO — {duration_days} дней",
+            description=description,
             idempotence_key=idempotence_key,
             subscription_id=subscription.id if subscription else None,
             payment_metadata={
@@ -71,9 +92,9 @@ class PaymentService:
         )
 
         result = await self.yookassa.create_payment(
-            amount=amount,
+            amount=amount_decimal,
             currency=currency,
-            description=f"Psychosomatic PRO — {duration_days} дней",
+            description=description,
             return_url=settings.YOOKASSA_RETURN_URL,
             metadata={
                 "user_id": str(user_id),
@@ -104,7 +125,7 @@ class PaymentService:
             "provider_payment_id": provider_payment_id,
             "status": result.get("status"),
             "confirmation_url": result.get("confirmation_url"),
-            "amount": amount,
+            "amount": amount_decimal,
             "currency": currency,
         }
 
@@ -113,9 +134,7 @@ class PaymentService:
         provider_payment_id: str,
         event_data: dict,
     ) -> Dict[str, Any]:
-        """
-        Обработка успешного платежа от webhook.
-        """
+        """Обработка успешного платежа от webhook."""
         payment = await self.payment_repo.get_by_provider_payment_id(provider_payment_id)
         if not payment:
             logger.warning(f"Payment not found: {provider_payment_id}")
@@ -131,7 +150,7 @@ class PaymentService:
             return {"success": False, "error": "Failed to get payment from YooKassa"}
 
         yk_data = yk_result.get("data", {})
-        
+
         if yk_data.get("status") != "succeeded":
             logger.info(f"Payment not succeeded: {yk_data.get('status')}")
             return {"success": False, "error": f"Status: {yk_data.get('status')}"}
@@ -159,7 +178,7 @@ class PaymentService:
 
         try:
             subscription = await self.subscription_repo.get_by_user_id(user_id)
-            
+
             now = datetime.now(ZoneInfo("UTC"))
             if subscription and subscription.plan == PlanType.PRO and subscription.expires_at:
                 new_expires_at = subscription.expires_at + timedelta(days=payment.duration_days)
@@ -192,20 +211,29 @@ class PaymentService:
             if self.bot:
                 try:
                     ADMIN_ID = 462035571
-                    
+
                     user_result = await self.db_session.execute(
                         select(User).where(User.telegram_id == user_id)
                     )
                     user = user_result.scalar_one_or_none()
                     user_name = user.first_name if user else "Неизвестно"
-                    
-                    await self.bot.send_message(  # ← ИСПРАВЛЕНО: используем self.bot
+
+                    # Определяем тариф для сообщения
+                    if payment.duration_days >= 180:
+                        tariff_label = "6 месяцев"
+                    elif payment.duration_days >= 90:
+                        tariff_label = "3 месяца"
+                    else:
+                        tariff_label = "1 месяц"
+
+                    await self.bot.send_message(
                         chat_id=ADMIN_ID,
                         text=(
                             f"💳 <b>НОВЫЙ ПЛАТЁЖ!</b>\n\n"
                             f"👤 Пользователь: <code>{user_id}</code>\n"
                             f"👤 Имя: {user_name}\n"
                             f"💰 Сумма: {payment.amount} {payment.currency}\n"
+                            f"⭐ Тариф: {tariff_label} ({payment.duration_days} дн.)\n"
                             f"📅 Дата: {datetime.now(ZoneInfo('UTC')).strftime('%d.%m.%Y %H:%M')}\n"
                             f"🆔 Платёж: #{payment.id}\n"
                             f"⭐ PRO активирован до: {new_expires_at.strftime('%d.%m.%Y')}\n\n"
@@ -237,7 +265,7 @@ class PaymentService:
         payment = await self.payment_repo.get_by_id(payment_id, user_id)
         if not payment:
             return None
-        
+
         return {
             "id": payment.id,
             "status": payment.status.value if hasattr(payment.status, 'value') else payment.status,

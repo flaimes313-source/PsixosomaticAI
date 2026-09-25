@@ -20,6 +20,7 @@ class SubscriptionStatus(str, enum.Enum):
     ACTIVE = "active"
     EXPIRED = "expired"
     CANCELLED = "cancelled"
+    PRO_TRIAL = "pro_trial"   # ← НОВОЕ: пробный PRO на 3 дня
 
 
 class Subscription(Base):
@@ -28,13 +29,13 @@ class Subscription(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(BigInteger, nullable=False, unique=True, index=True)  # Telegram ID
-    
+
     plan = Column(SQLEnum(PlanType), nullable=False, default=PlanType.FREE)
     status = Column(SQLEnum(SubscriptionStatus), nullable=False, default=SubscriptionStatus.ACTIVE)
-    
+
     started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=True)  # NULL = бессрочно (или FREE)
-    
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 

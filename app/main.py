@@ -39,6 +39,7 @@ from app.db.database import check_db_connection, engine, async_session_maker
 from app.services.reminder_service import ReminderService
 from app.services.subscription_service import SubscriptionService
 from app.services.payment_reconciliation_service import PaymentReconciliationService
+from app.services.trial_service import TrialService
 # ВРЕМЕННО ОТКЛЮЧЕНО: SurveyScheduler больше не используется
 # from app.services.survey_scheduler import SurveyScheduler
 from app.webhooks.yookassa import router as yookassa_webhook_router
@@ -106,12 +107,17 @@ async def main() -> None:
     await setup_bot_commands(bot)
 
     # ==================== ФОНОВЫЕ СЕРВИСЫ ====================
-    # ReminderService теперь отвечает за утреннее сообщение
+    # ReminderService — утреннее сообщение «Описать состояние»
     reminder_service = ReminderService(async_session_maker, bot)
     await reminder_service.start()
 
+    # Платёжный сервис — проверка «зависших» платежей
     reconciliation_service = PaymentReconciliationService(async_session_maker)
     await reconciliation_service.start()
+
+    # TrialService — проверка истёкших PRO_TRIAL/PRO + напоминания за 3/1/0 дней
+    trial_service = TrialService(async_session_maker, bot)
+    await trial_service.start()
 
     # ВРЕМЕННО ОТКЛЮЧЕНО: SurveyScheduler больше не нужен
     # survey_scheduler = SurveyScheduler(async_session_maker, bot)
@@ -134,6 +140,7 @@ async def main() -> None:
         fastapi_task.cancel()
         await reminder_service.stop()
         await reconciliation_service.stop()
+        await trial_service.stop()
         # await survey_scheduler.stop()   # ← ОТКЛЮЧЕНО
         await bot.session.close()
         await engine.dispose()
