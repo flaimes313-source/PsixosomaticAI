@@ -20,7 +20,12 @@ class SubscriptionStatus(str, enum.Enum):
     ACTIVE = "active"
     EXPIRED = "expired"
     CANCELLED = "cancelled"
-    PRO_TRIAL = "pro_trial"   # ← НОВОЕ: пробный PRO на 3 дня
+    PRO_TRIAL = "pro_trial"   # пробный PRO на 3 дня
+
+
+def _enum_values(enum_cls):
+    """Возвращает список .value для использования в SQLAlchemy Enum."""
+    return [e.value for e in enum_cls]
 
 
 class Subscription(Base):
@@ -30,8 +35,19 @@ class Subscription(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(BigInteger, nullable=False, unique=True, index=True)  # Telegram ID
 
-    plan = Column(SQLEnum(PlanType), nullable=False, default=PlanType.FREE)
-    status = Column(SQLEnum(SubscriptionStatus), nullable=False, default=SubscriptionStatus.ACTIVE)
+    # ВАЖНО: values_callable заставляет SQLAlchemy использовать .value (нижний регистр),
+    # а не .name. Без этого SQLAlchemy пытается вставить 'PRO_TRIAL' вместо 'pro_trial'
+    # и падает с InvalidTextRepresentationError.
+    plan = Column(
+        SQLEnum(PlanType, values_callable=_enum_values),
+        nullable=False,
+        default=PlanType.FREE,
+    )
+    status = Column(
+        SQLEnum(SubscriptionStatus, values_callable=_enum_values),
+        nullable=False,
+        default=SubscriptionStatus.ACTIVE,
+    )
 
     started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=True)  # NULL = бессрочно (или FREE)
