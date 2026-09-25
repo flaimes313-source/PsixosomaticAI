@@ -2,7 +2,7 @@
 Репозиторий для работы с DiaryEvent.
 Единый репозиторий для всех событий пользователя.
 """
-from sqlalchemy import select, desc, func, and_
+from sqlalchemy import select, desc, func, and_, cast, Date as SADate
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
@@ -39,10 +39,10 @@ class DiaryRepository:
         """
         if session_id is None:
             session_id = str(uuid.uuid4())
-        
+
         if event_date is None:
             event_date = datetime.now().date()
-        
+
         event = DiaryEvent(
             user_id=user_id,
             event_type=event_type,
@@ -58,11 +58,11 @@ class DiaryRepository:
         self.session.add(event)
         await self.session.commit()
         await self.session.refresh(event)
-        
+
         logger.info(f"DiaryEvent created: id={event.id}, type={event_type}, user_id={user_id}")
         return event
 
-    # ==================== ОСТАЛЬНЫЕ МЕТОДЫ БЕЗ ИЗМЕНЕНИЙ ====================
+    # ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     async def get_event(self, event_id: int, user_id: int) -> Optional[DiaryEvent]:
         """Получает событие по ID."""
@@ -83,12 +83,12 @@ class DiaryRepository:
     ) -> List[DiaryEvent]:
         """Получает события пользователя с фильтрацией."""
         query = select(DiaryEvent).where(DiaryEvent.user_id == user_id)
-        
+
         if event_types:
             query = query.where(DiaryEvent.event_type.in_(event_types))
-        
+
         query = query.order_by(desc(DiaryEvent.created_at)).limit(limit).offset(offset)
-        
+
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -96,13 +96,22 @@ class DiaryRepository:
         self,
         user_id: int,
         event_date: date,
+        user_tz: str = "UTC",
     ) -> List[DiaryEvent]:
-        """Получает события за конкретную дату."""
+        """
+        Получает события за конкретную дату В ЧАСОВОМ ПОЯСЕ ПОЛЬЗОВАТЕЛЯ.
+
+        Использует created_at с переводом в user_tz,
+        игнорируя поле event_date (которое заполняется в UTC).
+        """
         result = await self.session.execute(
             select(DiaryEvent)
             .where(
                 DiaryEvent.user_id == user_id,
-                DiaryEvent.event_date == event_date
+                cast(
+                    func.timezone(user_tz, DiaryEvent.created_at),
+                    SADate
+                ) == event_date
             )
             .order_by(DiaryEvent.created_at.asc())
         )
@@ -121,12 +130,12 @@ class DiaryRepository:
             DiaryEvent.event_date >= start_date,
             DiaryEvent.event_date <= end_date,
         )
-        
+
         if event_types:
             query = query.where(DiaryEvent.event_type.in_(event_types))
-        
+
         query = query.order_by(DiaryEvent.created_at.asc())
-        
+
         result = await self.session.execute(query)
         return result.scalars().all()
 

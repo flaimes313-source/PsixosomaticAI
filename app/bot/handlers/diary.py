@@ -31,12 +31,12 @@ def format_dialog_preview(events: list, user_tz) -> tuple:
     """Форматирует диалог/опрос для краткого отображения."""
     if not events:
         return "📝 Пустой диалог", None
-    
+
     first_event = events[0]
     time_str = first_event.created_at.astimezone(user_tz).strftime("%H:%M")
-    
+
     event_types = [e.event_type for e in events]
-    
+
     # Опросы
     if "survey_morning" in event_types:
         preview = f"🕐 {time_str}\n🌅 <b>Утренний опрос</b>\n{len(events)} вопросов"
@@ -47,17 +47,17 @@ def format_dialog_preview(events: list, user_tz) -> tuple:
     elif "survey_evening" in event_types:
         preview = f"🕐 {time_str}\n🌆 <b>Вечерний опрос</b>\n{len(events)} вопросов"
         return preview, first_event.session_id
-    
+
     # Обычный диалог
     user_message = None
     for event in events:
         if event.event_type == "describe_user":
             user_message = event.content
             break
-    
+
     if not user_message:
         user_message = "Нет сообщений"
-    
+
     preview = f"🕐 {time_str}\n📝 <b>Новый диалог</b>\n{user_message[:80]}..."
     return preview, first_event.session_id
 
@@ -66,11 +66,11 @@ def format_dialog_full(events: list, user_tz) -> str:
     """Форматирует полный диалог/опрос для отображения."""
     if not events:
         return "📝 Пустой диалог"
-    
+
     first_event = events[0]
     date_str = first_event.created_at.astimezone(user_tz).strftime("%d.%m.%Y")
     event_types = [e.event_type for e in events]
-    
+
     # Определяем тип
     if "survey_morning" in event_types:
         text = f"🌅 <b>Утренний опрос</b>\n📅 {date_str}\n\n"
@@ -80,10 +80,10 @@ def format_dialog_full(events: list, user_tz) -> str:
         text = f"🌆 <b>Вечерний опрос</b>\n📅 {date_str}\n\n"
     else:
         text = f"💬 <b>Диалог</b>\n📅 {date_str}\n\n"
-    
+
     for event in events:
         time_str = event.created_at.astimezone(user_tz).strftime("%H:%M")
-        
+
         if event.event_type == "describe_user":
             text += f"👤 <b>Ты</b> 🕐 {time_str}\n{event.content}\n\n"
         elif event.event_type == "describe_ai":
@@ -93,21 +93,20 @@ def format_dialog_full(events: list, user_tz) -> str:
         elif event.event_type == "clarification_answer":
             text += f"💬 <b>Ответ AI</b> 🕐 {time_str}\n{event.content}\n\n"
         elif event.event_type.startswith("survey_"):
-            # Опрос — показываем вопрос и ответ
             question = "Вопрос"
             if event.payload and isinstance(event.payload, dict):
                 question = event.payload.get("question", "Вопрос")
             text += f"❓ <b>{question}</b>\n📝 {event.content}\n\n"
         elif event.event_type == "analysis":
             text += f"🧠 <b>Анализ</b> 🕐 {time_str}\n{event.content}\n\n"
-    
+
     return text
 
 
 def format_event_for_display(event: DiaryEvent, user_tz) -> str:
     """Форматирует одиночное событие (не диалог/опрос)."""
     time_str = event.created_at.astimezone(user_tz).strftime("%H:%M")
-    
+
     if event.event_type == "analysis":
         return f"🕐 {time_str}\n🧠 <b>Анализ:</b>\n{event.content[:100]}...\n"
     else:
@@ -118,27 +117,28 @@ def format_event_for_display(event: DiaryEvent, user_tz) -> str:
 async def show_diary(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """Показывает дневник — события за сегодня."""
     await state.clear()
-    
+
     telegram_id = message.from_user.id
-    
+
     result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
     user = result.scalar_one_or_none()
-    
+
     if not user:
         await message.answer(
             "⚠️ Вы еще не зарегистрированы.\nОтправьте /start",
             reply_markup=get_main_menu_keyboard(),
         )
         return
-    
+
     user_tz = get_user_timezone(user)
+    user_tz_str = user.timezone or "UTC"
     today = datetime.now(user_tz).date()
-    
+
     diary_repo = DiaryRepository(db_session)
-    events = await diary_repo.get_events_by_date(user.id, today)
-    
+    events = await diary_repo.get_events_by_date(user.id, today, user_tz_str)
+
     if not events:
         await message.answer(
             "📔 Сегодня записей пока нет\n"
@@ -148,7 +148,7 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
             parse_mode="HTML",
         )
         return
-    
+
     # Группируем ВСЁ по сессиям (диалоги, опросы)
     sessions = {}
     for event in events:
@@ -160,11 +160,11 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
             if session_id not in sessions:
                 sessions[session_id] = []
             sessions[session_id].append(event)
-    
+
     text = f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\n"
     keyboard_buttons = []
     idx = 0
-    
+
     for session_id, session_events in sessions.items():
         idx += 1
         preview, _ = format_dialog_preview(session_events, user_tz)
@@ -175,16 +175,16 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
                 callback_data=f"diary_dialog_detail_{session_id}"
             )]
         )
-    
+
     keyboard_buttons.append([
         InlineKeyboardButton(text="📅 Другие дни", callback_data="diary_dates")
     ])
     keyboard_buttons.append([
         InlineKeyboardButton(text="🔙 В меню", callback_data="diary_back_to_menu")
     ])
-    
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-    
+
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
     logger.info(f"User opened diary: {telegram_id}")
 
@@ -193,35 +193,35 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
 async def show_diary_dialog_detail(callback: CallbackQuery, db_session: AsyncSession):
     """Показывает полный диалог/опрос по session_id."""
     await callback.answer()
-    
+
     session_id = callback.data.replace("diary_dialog_detail_", "")
     telegram_id = callback.from_user.id
-    
+
     result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
     user = result.scalar_one_or_none()
-    
+
     if not user:
         await callback.message.edit_text("⚠️ Пожалуйста, отправьте /start", reply_markup=None)
         return
-    
+
     diary_repo = DiaryRepository(db_session)
     events = await diary_repo.get_session_events(user.id, session_id)
-    
+
     if not events:
         await callback.message.edit_text("❌ Диалог не найден.", reply_markup=None)
         return
-    
+
     user_tz = get_user_timezone(user)
     text = format_dialog_full(events, user_tz)
-    
+
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🔙 Назад к дневнику", callback_data="diary_back_to_today")]
         ]
     )
-    
+
     try:
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     except Exception:
@@ -232,28 +232,28 @@ async def show_diary_dialog_detail(callback: CallbackQuery, db_session: AsyncSes
 async def show_diary_dates(callback: CallbackQuery, db_session: AsyncSession):
     """Показывает даты с событиями."""
     await callback.answer()
-    
+
     telegram_id = callback.from_user.id
-    
+
     result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
     user = result.scalar_one_or_none()
-    
+
     if not user:
         await callback.message.edit_text("⚠️ Пожалуйста, отправьте /start", reply_markup=None)
         return
-    
+
     diary_repo = DiaryRepository(db_session)
     dates = await diary_repo.get_dates_with_events(user.id, limit=30)
-    
+
     if not dates:
         await callback.message.edit_text(
             "📋 У вас пока нет событий в дневнике.",
             reply_markup=get_diary_menu_keyboard(),
         )
         return
-    
+
     text = "📅 <b>Выбери дату</b>\n\n"
     keyboard_buttons = []
     for event_date, count in dates:
@@ -264,11 +264,11 @@ async def show_diary_dates(callback: CallbackQuery, db_session: AsyncSession):
                 callback_data=f"diary_date_{event_date.isoformat()}"
             )]
         )
-    
+
     keyboard_buttons.append([
         InlineKeyboardButton(text="🔙 Назад", callback_data="diary_back_to_today")
     ])
-    
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -277,33 +277,34 @@ async def show_diary_dates(callback: CallbackQuery, db_session: AsyncSession):
 async def show_diary_events_for_date(callback: CallbackQuery, db_session: AsyncSession):
     """Показывает события за конкретную дату."""
     await callback.answer()
-    
+
     date_str = callback.data.replace("diary_date_", "")
     event_date = date.fromisoformat(date_str)
     telegram_id = callback.from_user.id
-    
+
     result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
     user = result.scalar_one_or_none()
-    
+
     if not user:
         await callback.message.edit_text("⚠️ Пожалуйста, отправьте /start", reply_markup=None)
         return
-    
+
     user_tz = get_user_timezone(user)
+    user_tz_str = user.timezone or "UTC"
     diary_repo = DiaryRepository(db_session)
-    events = await diary_repo.get_events_by_date(user.id, event_date)
-    
+    events = await diary_repo.get_events_by_date(user.id, event_date, user_tz_str)
+
     if not events:
         await callback.message.edit_text(
             f"📅 {event_date.strftime('%d.%m.%Y')} — записей нет.",
             reply_markup=get_diary_menu_keyboard(),
         )
         return
-    
+
     text = f"📔 <b>{event_date.strftime('%d.%m.%Y')}</b>\n\n"
-    
+
     sessions = {}
     for event in events:
         if event.event_type in [
@@ -314,7 +315,7 @@ async def show_diary_events_for_date(callback: CallbackQuery, db_session: AsyncS
             if session_id not in sessions:
                 sessions[session_id] = []
             sessions[session_id].append(event)
-    
+
     keyboard_buttons = []
     idx = 0
     for session_id, session_events in sessions.items():
@@ -327,14 +328,14 @@ async def show_diary_events_for_date(callback: CallbackQuery, db_session: AsyncS
                 callback_data=f"diary_dialog_detail_{session_id}"
             )]
         )
-    
+
     keyboard_buttons.append([
         InlineKeyboardButton(text="🔙 Назад к датам", callback_data="diary_dates")
     ])
     keyboard_buttons.append([
         InlineKeyboardButton(text="🔙 В меню", callback_data="diary_back_to_menu")
     ])
-    
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -343,33 +344,34 @@ async def show_diary_events_for_date(callback: CallbackQuery, db_session: AsyncS
 async def diary_back_to_today(callback: CallbackQuery, db_session: AsyncSession):
     """Возврат к сегодняшним событиям."""
     await callback.answer()
-    
+
     telegram_id = callback.from_user.id
-    
+
     result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
     user = result.scalar_one_or_none()
-    
+
     if not user:
         await callback.message.edit_text("⚠️ Пожалуйста, отправьте /start", reply_markup=None)
         return
-    
+
     user_tz = get_user_timezone(user)
+    user_tz_str = user.timezone or "UTC"
     today = datetime.now(user_tz).date()
-    
+
     diary_repo = DiaryRepository(db_session)
-    events = await diary_repo.get_events_by_date(user.id, today)
-    
+    events = await diary_repo.get_events_by_date(user.id, today, user_tz_str)
+
     if not events:
         await callback.message.edit_text(
             f"📔 {today.strftime('%d.%m.%Y')} — записей нет.",
             reply_markup=get_diary_menu_keyboard(),
         )
         return
-    
+
     text = f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\n"
-    
+
     sessions = {}
     for event in events:
         if event.event_type in [
@@ -380,7 +382,7 @@ async def diary_back_to_today(callback: CallbackQuery, db_session: AsyncSession)
             if session_id not in sessions:
                 sessions[session_id] = []
             sessions[session_id].append(event)
-    
+
     keyboard_buttons = []
     idx = 0
     for session_id, session_events in sessions.items():
@@ -393,14 +395,14 @@ async def diary_back_to_today(callback: CallbackQuery, db_session: AsyncSession)
                 callback_data=f"diary_dialog_detail_{session_id}"
             )]
         )
-    
+
     keyboard_buttons.append([
         InlineKeyboardButton(text="📅 Другие дни", callback_data="diary_dates")
     ])
     keyboard_buttons.append([
         InlineKeyboardButton(text="🔙 В меню", callback_data="diary_back_to_menu")
     ])
-    
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -410,12 +412,12 @@ async def diary_back_to_menu(callback: CallbackQuery, state: FSMContext):
     """Возврат в главное меню."""
     await callback.answer()
     await state.clear()
-    
+
     try:
         await callback.message.delete()
     except Exception:
         pass
-    
+
     await callback.bot.send_message(
         chat_id=callback.from_user.id,
         text="Главное меню:",
