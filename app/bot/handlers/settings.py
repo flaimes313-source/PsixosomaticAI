@@ -18,7 +18,6 @@ from app.db.models.clarification import Clarification
 from app.db.models.diary_event import DiaryEvent
 from app.db.models.reminder import ReminderSettings
 from app.db.models.subscription import Subscription
-from app.db.models.usage import UserUsage
 from app.utils.logging import logger
 
 router = Router()
@@ -54,8 +53,7 @@ async def confirm_delete_data(callback: CallbackQuery):
         "• Все уточняющие вопросы и ответы\n"
         "• Все записи дневника и история\n"
         "• Настройки напоминаний\n"
-        "• История подписок\n"
-        "• Статистика использования\n\n"
+        "• История подписок\n\n"
         "⚠️ Это действие <b>нельзя отменить</b>!\n\n"
         "ℹ️ Профиль сохранится, но все наблюдения будут удалены.",
         reply_markup=get_confirm_delete_keyboard(),
@@ -83,11 +81,11 @@ async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession
     """
     Удаляет все данные пользователя, но СОХРАНЯЕТ самого User.
 
-    Логика:
-    - Удаляем: diary_events, clarifications, analyses, reminder_settings,
-      user_usage, subscriptions.
-    - Не удаляем: users (обнуляем флаги trial/free_dialog/счётчики),
-      payments (не трогаем), pro_whitelist (не трогаем), support_requests (не трогаем).
+    Удаляем:
+    - diary_events, clarifications, analyses, reminder_settings, subscriptions.
+    НЕ трогаем:
+    - users (обнуляем флаги trial/free_dialog/счётчики),
+      payments, pro_whitelist, support_requests, broadcasts.
     """
     await callback.answer("Удаление данных...")
 
@@ -135,13 +133,7 @@ async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession
         )
         reminders_deleted = result_reminders.rowcount
 
-        # 2.5. UserUsage (по telegram_id)
-        result_usage = await db_session.execute(
-            delete(UserUsage).where(UserUsage.user_id == telegram_id)
-        )
-        usage_deleted = result_usage.rowcount
-
-        # 2.6. Subscriptions (по telegram_id)
+        # 2.5. Subscriptions (по telegram_id)
         result_subscription = await db_session.execute(
             delete(Subscription).where(Subscription.user_id == telegram_id)
         )
@@ -168,8 +160,7 @@ async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession
             f"analyses={analyses_deleted}, "
             f"clarifications={clarifications_deleted}, "
             f"reminders={reminders_deleted}, "
-            f"subscription={subscription_deleted}, "
-            f"usage={usage_deleted}"
+            f"subscription={subscription_deleted}"
         )
 
         # ==================== 4. СООБЩАЕМ ПОЛЬЗОВАТЕЛЮ ====================
@@ -181,8 +172,7 @@ async def delete_all_user_data(callback: CallbackQuery, db_session: AsyncSession
             f"• {analyses_deleted} анализов\n"
             f"• {clarifications_deleted} уточнений\n"
             f"• {reminders_deleted} настроек напоминаний\n"
-            f"• {subscription_deleted} записей подписок\n"
-            f"• {usage_deleted} записей статистики\n\n"
+            f"• {subscription_deleted} записей подписок\n\n"
             "🌿 Твой профиль сохранён. Все наблюдения удалены.\n\n"
             "Можешь начать заново — нажми «📝 Описать состояние» "
             "или отправь /start.",
