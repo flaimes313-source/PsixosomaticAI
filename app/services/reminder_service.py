@@ -142,15 +142,12 @@ class ReminderService:
 
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+            # Только одна кнопка — «Описать состояние»
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(
                         text="🌿 Описать состояние",
                         callback_data="reminder_open_describe"
-                    )],
-                    [InlineKeyboardButton(
-                        text="🔕 Отключить напоминания",
-                        callback_data="reminders_disable"
                     )]
                 ]
             )
