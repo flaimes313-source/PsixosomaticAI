@@ -49,6 +49,49 @@ def get_pro_offer_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+# ==================== ОТМЕНА ====================
+
+@router.message(F.text == "❌ Отмена")
+async def cancel_describe_state(message: types.Message, state: FSMContext):
+    """
+    Обработчик кнопки «❌ Отмена».
+    Работает в ЛЮБОМ состоянии FSM.
+    НЕ отправляет запрос в AI, НЕ сохраняет в БД.
+    """
+    current_state = await state.get_state()
+    logger.info(f"User cancelled describe state: telegram_id={message.from_user.id}, state={current_state}")
+
+    # Получаем dialog_message_id, чтобы удалить приветственное сообщение бота
+    data = await state.get_data()
+    dialog_message_id = data.get("dialog_message_id")
+
+    # Сбрасываем FSM
+    await state.clear()
+
+    # Пытаемся удалить сообщение бота с приветствием (если оно есть)
+    if dialog_message_id:
+        try:
+            await message.bot.delete_message(
+                chat_id=message.chat.id,
+                message_id=dialog_message_id,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to delete dialog message on cancel: {e}")
+
+    # Пытаемся удалить сообщение пользователя («❌ Отмена»)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    # Показываем главное меню
+    await message.answer(
+        "❌ Диалог отменён.\n\n"
+        "Если захочешь — можешь начать заново в любой момент.",
+        reply_markup=get_main_menu_keyboard(),
+    )
+
+
 # ==================== ОБЩАЯ ЛОГИКА ЗАПУСКА ====================
 
 async def _start_describe_state_flow(
@@ -84,7 +127,6 @@ async def _start_describe_state_flow(
     can_start, limit_message = await access_service.can_start_new_describe_dialog(telegram_id)
 
     if not can_start:
-        # Нельзя начать новый диалог — показываем PRO-предложение
         await message.answer(
             limit_message,
             reply_markup=get_pro_offer_keyboard(),
@@ -93,7 +135,6 @@ async def _start_describe_state_flow(
         return
 
     # ==================== 3. СБРОС СЧЁТЧИКА УТОЧНЕНИЙ ====================
-    # Если пользователь FREE и запускает новый бесплатный диалог — счётчик в 0
     if not await access_service.is_pro(telegram_id):
         await access_service.reset_free_dialog_counter(telegram_id)
 
@@ -333,7 +374,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
     can_continue, limit_message = await access_service.can_continue_free_dialog(telegram_id)
 
     if not can_continue:
-        # Лимит исчерпан — завершаем диалог и показываем PRO
         await state.clear()
         try:
             await message.delete()
@@ -462,7 +502,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         if not is_pro:
             new_count = await access_service.increment_free_question(telegram_id)
 
-            # Если достигли лимита (3) — завершаем бесплатный диалог
             if new_count >= 3:
                 await access_service.finish_free_dialog(telegram_id)
                 logger.info(f"Free dialog finished for user {telegram_id} (3 questions reached)")
