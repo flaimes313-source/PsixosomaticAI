@@ -16,6 +16,7 @@ from app.bot.keyboards.profile import (
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.models.user import User
 from app.db.models.reminder import ReminderSettings
+from app.db.repositories.reminder import ReminderRepository
 from app.db.repositories.diary_repository import DiaryRepository
 from app.services.access_service import AccessService
 from app.services.subscription_service import SubscriptionService
@@ -65,17 +66,17 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     else:
         plan_status = "🔓 Демо (FREE)"
 
-    reminder_result = await db_session.execute(
-        select(ReminderSettings).where(ReminderSettings.user_id == user_id)
-    )
-    reminder = reminder_result.scalar_one_or_none()
+    # ==================== REMINDER (создаём если нет) ====================
+    reminder_repo = ReminderRepository(db_session)
+    reminder = await reminder_repo.get_or_create(user_id)
 
-    if reminder and reminder.enabled and reminder.reminder_time:
+    if reminder.enabled and reminder.reminder_time:
         reminder_status = f"✅ {reminder.reminder_time.strftime('%H:%M')}"
-    elif reminder and reminder.enabled:
+    elif reminder.enabled:
         reminder_status = "✅ 09:00 (по умолчанию)"
     else:
         reminder_status = "❌ Выключено"
+    # =====================================================================
 
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Неизвестно"
 
@@ -116,7 +117,6 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
 async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """
     Показывает профиль пользователя из callback.
-    Использует callback.from_user.id для получения пользователя.
     Отправляет НОВОЕ сообщение (не редактирует удалённое).
     """
     await state.clear()
@@ -157,17 +157,17 @@ async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext,
     else:
         plan_status = "🔓 Демо (FREE)"
 
-    reminder_result = await db_session.execute(
-        select(ReminderSettings).where(ReminderSettings.user_id == user_id)
-    )
-    reminder = reminder_result.scalar_one_or_none()
+    # ==================== REMINDER (создаём если нет) ====================
+    reminder_repo = ReminderRepository(db_session)
+    reminder = await reminder_repo.get_or_create(user_id)
 
-    if reminder and reminder.enabled and reminder.reminder_time:
+    if reminder.enabled and reminder.reminder_time:
         reminder_status = f"✅ {reminder.reminder_time.strftime('%H:%M')}"
-    elif reminder and reminder.enabled:
+    elif reminder.enabled:
         reminder_status = "✅ 09:00 (по умолчанию)"
     else:
         reminder_status = "❌ Выключено"
+    # =====================================================================
 
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Неизвестно"
 
