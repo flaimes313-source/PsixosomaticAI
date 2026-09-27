@@ -19,6 +19,10 @@ from app.utils.logging import logger
 router = Router()
 
 
+# Сколько записей показывать на одной странице
+PAGE_SIZE = 12
+
+
 def get_user_timezone(user) -> ZoneInfo:
     user_tz_str = user.timezone or "UTC"
     try:
@@ -27,40 +31,140 @@ def get_user_timezone(user) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
-def format_dialog_preview(events: list, user_tz) -> tuple:
-    """Форматирует диалог/опрос для краткого отображения."""
-    if not events:
-        return "📝 Пустой диалог", None
+# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
 
-    first_event = events[0]
-    time_str = first_event.created_at.astimezone(user_tz).strftime("%H:%M")
+def _truncate(text: str, limit: int = 40) -> str:
+    """Аккуратно обрезает текст до limit символов, добавляя «...» при необходимости."""
+    if not text:
+        return ""
 
-    event_types = [e.event_type for e in events]
+    text = text.strip().replace("\n", " ")
 
-    # Опросы
-    if "survey_morning" in event_types:
-        preview = f"🕐 {time_str}\n🌅 <b>Утренний опрос</b>\n{len(events)} вопросов"
-        return preview, first_event.session_id
-    elif "survey_day" in event_types:
-        preview = f"🕐 {time_str}\n☀️ <b>Дневной опрос</b>\n{len(events)} вопросов"
-        return preview, first_event.session_id
-    elif "survey_evening" in event_types:
-        preview = f"🕐 {time_str}\n🌆 <b>Вечерний опрос</b>\n{len(events)} вопросов"
-        return preview, first_event.session_id
+    if len(text) <= limit:
+        return text
 
-    # Обычный диалог
-    user_message = None
+    return text[:limit].rstrip() + "..."
+
+
+def _get_user_preview_text(events: list) -> str:
+    """Возвращает текст первого сообщения пользователя в сессии."""
     for event in events:
-        if event.event_type == "describe_user":
-            user_message = event.content
-            break
+        if event.event_type == "describe_user" and event.content:
+            return event.content
+    return ""
 
-    if not user_message:
-        user_message = "Нет сообщений"
 
-    preview = f"🕐 {time_str}\n📝 <b>Новый диалог</b>\n{user_message[:80]}..."
-    return preview, first_event.session_id
+def _get_session_time(events: list, user_tz: ZoneInfo) -> str:
+    """Возвращает время первого события в сессии (HH:MM)."""
+    if not events:
+        return "—:—"
+    return events[0].created_at.astimezone(user_tz).strftime("%H:%M")
 
+
+def _build_compact_button_label(session_events: list, user_tz: ZoneInfo) -> str:
+    """
+    Строит компактную метку для кнопки записи.
+    Формат: 🕐 HH:MM · <начало сообщения пользователя>
+    """
+    time_str = _get_session_time(session_events, user_tz)
+    user_text = _get_user_preview_text(session_events)
+
+    if user_text:
+        preview = _truncate(user_text, limit=40)
+    else:
+        # Если пользовательского текста нет (например, только AI-ответ)
+        preview = "(без текста)"
+
+    return f"🕐 {time_str} · {preview}"
+
+
+def _group_by_sessions(events: list) -> dict:
+    """Группирует события по session_id."""
+    sessions = {}
+    for event in events:
+        if event.event_type in [
+            "describe_user", "describe_ai",
+            "clarification_question", "clarification_answer",
+            "survey_morning", "survey_day", "survey_evening",
+            "analysis",
+        ]:
+            session_id = event.session_id or f"single_{event.id}"
+            if session_id not in sessions:
+                sessions[session_id] = []
+            sessions[session_id].append(event)
+    return sessions
+
+
+def _build_sessions_keyboard(
+    sessions: dict,
+    user_tz: ZoneInfo,
+    page: int = 0,
+    date_iso: str = None,
+    is_today: bool = False,
+) -> tuple:
+    """
+    Строит клавиатуру с записями и пагинацией.
+
+    Returns:
+        (keyboard, total_pages, sessions_count)
+    """
+    sessions_list = list(sessions.items())  # [(session_id, events), ...]
+
+    total = len(sessions_list)
+    total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+
+    # Ограничиваем page
+    page = max(0, min(page, total_pages - 1))
+
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_sessions = sessions_list[start:end]
+
+    buttons = []
+
+    # Компактные кнопки записей
+    for session_id, session_events in page_sessions:
+        label = _build_compact_button_label(session_events, user_tz)
+        buttons.append([
+            InlineKeyboardButton(
+                text=label,
+                callback_data=f"diary_dialog_detail_{session_id}"
+            )
+        ])
+
+    # Пагинация
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(
+            text="⬅️ Предыдущие",
+            callback_data=f"diary_page_{'today' if is_today else date_iso}_{page - 1}"
+        ))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(
+            text="➡️ Следующие записи",
+            callback_data=f"diary_page_{'today' if is_today else date_iso}_{page + 1}"
+        ))
+    if nav_buttons:
+        buttons.append(nav_buttons)
+
+    # Навигация по разделам
+    if is_today:
+        buttons.append([
+            InlineKeyboardButton(text="📅 Другие дни", callback_data="diary_dates")
+        ])
+    else:
+        buttons.append([
+            InlineKeyboardButton(text="🔙 Назад к датам", callback_data="diary_dates")
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 В меню", callback_data="diary_back_to_menu")
+    ])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    return keyboard, total_pages, total
+
+
+# ==================== ФОРМАТИРОВАНИЕ ПОЛНОГО ДИАЛОГА ====================
 
 def format_dialog_full(events: list, user_tz) -> str:
     """Форматирует полный диалог/опрос для отображения."""
@@ -71,7 +175,6 @@ def format_dialog_full(events: list, user_tz) -> str:
     date_str = first_event.created_at.astimezone(user_tz).strftime("%d.%m.%Y")
     event_types = [e.event_type for e in events]
 
-    # Определяем тип
     if "survey_morning" in event_types:
         text = f"🌅 <b>Утренний опрос</b>\n📅 {date_str}\n\n"
     elif "survey_day" in event_types:
@@ -103,15 +206,7 @@ def format_dialog_full(events: list, user_tz) -> str:
     return text
 
 
-def format_event_for_display(event: DiaryEvent, user_tz) -> str:
-    """Форматирует одиночное событие (не диалог/опрос)."""
-    time_str = event.created_at.astimezone(user_tz).strftime("%H:%M")
-
-    if event.event_type == "analysis":
-        return f"🕐 {time_str}\n🧠 <b>Анализ:</b>\n{event.content[:100]}...\n"
-    else:
-        return f"🕐 {time_str}\n📋 {event.event_type}\n"
-
+# ==================== ГЛАВНЫЙ ЭКРАН ДНЕВНИКА ====================
 
 @router.message(F.text == "📔 Дневник")
 async def show_diary(message: types.Message, state: FSMContext, db_session: AsyncSession):
@@ -149,45 +244,91 @@ async def show_diary(message: types.Message, state: FSMContext, db_session: Asyn
         )
         return
 
-    # Группируем ВСЁ по сессиям (диалоги, опросы)
-    sessions = {}
-    for event in events:
-        if event.event_type in [
-            "describe_user", "describe_ai", "clarification_question", "clarification_answer",
-            "survey_morning", "survey_day", "survey_evening", "analysis"
-        ]:
-            session_id = event.session_id or f"single_{event.id}"
-            if session_id not in sessions:
-                sessions[session_id] = []
-            sessions[session_id].append(event)
+    sessions = _group_by_sessions(events)
+    sessions_count = len(sessions)
 
-    text = f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\n"
-    keyboard_buttons = []
-    idx = 0
+    keyboard, total_pages, total = _build_sessions_keyboard(
+        sessions, user_tz, page=0, is_today=True
+    )
 
-    for session_id, session_events in sessions.items():
-        idx += 1
-        preview, _ = format_dialog_preview(session_events, user_tz)
-        text += preview + "\n\n"
-        keyboard_buttons.append(
-            [InlineKeyboardButton(
-                text=f"📖 Подробнее #{idx}",
-                callback_data=f"diary_dialog_detail_{session_id}"
-            )]
-        )
-
-    keyboard_buttons.append([
-        InlineKeyboardButton(text="📅 Другие дни", callback_data="diary_dates")
-    ])
-    keyboard_buttons.append([
-        InlineKeyboardButton(text="🔙 В меню", callback_data="diary_back_to_menu")
-    ])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    text = (
+        f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\n"
+        f"Записей: <b>{total}</b>"
+    )
+    if total_pages > 1:
+        text += f"\nСтраница: <b>1</b> / <b>{total_pages}</b>"
 
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
-    logger.info(f"User opened diary: {telegram_id}")
+    logger.info(f"User opened diary: {telegram_id}, sessions={sessions_count}")
 
+
+# ==================== ПАГИНАЦИЯ ====================
+
+@router.callback_query(F.data.startswith("diary_page_"))
+async def diary_page_navigate(callback: CallbackQuery, db_session: AsyncSession):
+    """
+    Обрабатывает пагинацию.
+    callback_data: diary_page_{'today'|<ISO-date>}_{page}
+    """
+    await callback.answer()
+
+    data_parts = callback.data.replace("diary_page_", "").rsplit("_", 1)
+    date_key = data_parts[0]
+    page = int(data_parts[1])
+
+    telegram_id = callback.from_user.id
+
+    result = await db_session.execute(
+        select(User).where(User.telegram_id == telegram_id)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        await callback.message.edit_text("⚠️ Пожалуйста, отправьте /start", reply_markup=None)
+        return
+
+    user_tz = get_user_timezone(user)
+    user_tz_str = user.timezone or "UTC"
+
+    if date_key == "today":
+        event_date = datetime.now(user_tz).date()
+        is_today = True
+        title = f"📔 <b>Сегодня ({event_date.strftime('%d.%m.%Y')})</b>"
+    else:
+        event_date = date.fromisoformat(date_key)
+        is_today = False
+        title = f"📔 <b>{event_date.strftime('%d.%m.%Y')}</b>"
+
+    diary_repo = DiaryRepository(db_session)
+    events = await diary_repo.get_events_by_date(user.id, event_date, user_tz_str)
+
+    if not events:
+        await callback.message.edit_text(
+            f"{title}\n\nЗаписей нет.",
+            reply_markup=get_diary_menu_keyboard(),
+            parse_mode="HTML",
+        )
+        return
+
+    sessions = _group_by_sessions(events)
+
+    keyboard, total_pages, total = _build_sessions_keyboard(
+        sessions, user_tz, page=page,
+        date_iso=None if is_today else event_date.isoformat(),
+        is_today=is_today,
+    )
+
+    text = f"{title}\n\nЗаписей: <b>{total}</b>"
+    if total_pages > 1:
+        text += f"\nСтраница: <b>{page + 1}</b> / <b>{total_pages}</b>"
+
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+# ==================== ПОЛНЫЙ ДИАЛОГ ====================
 
 @router.callback_query(F.data.startswith("diary_dialog_detail_"))
 async def show_diary_dialog_detail(callback: CallbackQuery, db_session: AsyncSession):
@@ -216,9 +357,21 @@ async def show_diary_dialog_detail(callback: CallbackQuery, db_session: AsyncSes
     user_tz = get_user_timezone(user)
     text = format_dialog_full(events, user_tz)
 
+    # Определяем, куда вернуться
+    first_event = events[0]
+    event_date = first_event.created_at.astimezone(user_tz).date()
+    today = datetime.now(user_tz).date()
+
+    if event_date == today:
+        back_callback = "diary_back_to_today"
+        back_label = "🔙 Назад к дневнику"
+    else:
+        back_callback = f"diary_date_{event_date.isoformat()}"
+        back_label = "🔙 Назад к дате"
+
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Назад к дневнику", callback_data="diary_back_to_today")]
+            [InlineKeyboardButton(text=back_label, callback_data=back_callback)]
         ]
     )
 
@@ -227,6 +380,8 @@ async def show_diary_dialog_detail(callback: CallbackQuery, db_session: AsyncSes
     except Exception:
         await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
+
+# ==================== СПИСОК ДАТ ====================
 
 @router.callback_query(F.data == "diary_dates")
 async def show_diary_dates(callback: CallbackQuery, db_session: AsyncSession):
@@ -273,6 +428,8 @@ async def show_diary_dates(callback: CallbackQuery, db_session: AsyncSession):
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
+# ==================== ЗАПИСИ ЗА КОНКРЕТНУЮ ДАТУ ====================
+
 @router.callback_query(F.data.startswith("diary_date_"))
 async def show_diary_events_for_date(callback: CallbackQuery, db_session: AsyncSession):
     """Показывает события за конкретную дату."""
@@ -303,42 +460,22 @@ async def show_diary_events_for_date(callback: CallbackQuery, db_session: AsyncS
         )
         return
 
-    text = f"📔 <b>{event_date.strftime('%d.%m.%Y')}</b>\n\n"
+    sessions = _group_by_sessions(events)
 
-    sessions = {}
-    for event in events:
-        if event.event_type in [
-            "describe_user", "describe_ai", "clarification_question", "clarification_answer",
-            "survey_morning", "survey_day", "survey_evening", "analysis"
-        ]:
-            session_id = event.session_id or f"single_{event.id}"
-            if session_id not in sessions:
-                sessions[session_id] = []
-            sessions[session_id].append(event)
+    keyboard, total_pages, total = _build_sessions_keyboard(
+        sessions, user_tz, page=0,
+        date_iso=event_date.isoformat(),
+        is_today=False,
+    )
 
-    keyboard_buttons = []
-    idx = 0
-    for session_id, session_events in sessions.items():
-        idx += 1
-        preview, _ = format_dialog_preview(session_events, user_tz)
-        text += preview + "\n\n"
-        keyboard_buttons.append(
-            [InlineKeyboardButton(
-                text=f"📖 Подробнее #{idx}",
-                callback_data=f"diary_dialog_detail_{session_id}"
-            )]
-        )
+    text = f"📔 <b>{event_date.strftime('%d.%m.%Y')}</b>\n\nЗаписей: <b>{total}</b>"
+    if total_pages > 1:
+        text += f"\nСтраница: <b>1</b> / <b>{total_pages}</b>"
 
-    keyboard_buttons.append([
-        InlineKeyboardButton(text="🔙 Назад к датам", callback_data="diary_dates")
-    ])
-    keyboard_buttons.append([
-        InlineKeyboardButton(text="🔙 В меню", callback_data="diary_back_to_menu")
-    ])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
+
+# ==================== ВОЗВРАТ К СЕГОДНЯ ====================
 
 @router.callback_query(F.data == "diary_back_to_today")
 async def diary_back_to_today(callback: CallbackQuery, db_session: AsyncSession):
@@ -370,42 +507,20 @@ async def diary_back_to_today(callback: CallbackQuery, db_session: AsyncSession)
         )
         return
 
-    text = f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\n"
+    sessions = _group_by_sessions(events)
 
-    sessions = {}
-    for event in events:
-        if event.event_type in [
-            "describe_user", "describe_ai", "clarification_question", "clarification_answer",
-            "survey_morning", "survey_day", "survey_evening", "analysis"
-        ]:
-            session_id = event.session_id or f"single_{event.id}"
-            if session_id not in sessions:
-                sessions[session_id] = []
-            sessions[session_id].append(event)
+    keyboard, total_pages, total = _build_sessions_keyboard(
+        sessions, user_tz, page=0, is_today=True
+    )
 
-    keyboard_buttons = []
-    idx = 0
-    for session_id, session_events in sessions.items():
-        idx += 1
-        preview, _ = format_dialog_preview(session_events, user_tz)
-        text += preview + "\n\n"
-        keyboard_buttons.append(
-            [InlineKeyboardButton(
-                text=f"📖 Подробнее #{idx}",
-                callback_data=f"diary_dialog_detail_{session_id}"
-            )]
-        )
+    text = f"📔 <b>Сегодня ({today.strftime('%d.%m.%Y')})</b>\n\nЗаписей: <b>{total}</b>"
+    if total_pages > 1:
+        text += f"\nСтраница: <b>1</b> / <b>{total_pages}</b>"
 
-    keyboard_buttons.append([
-        InlineKeyboardButton(text="📅 Другие дни", callback_data="diary_dates")
-    ])
-    keyboard_buttons.append([
-        InlineKeyboardButton(text="🔙 В меню", callback_data="diary_back_to_menu")
-    ])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
+
+# ==================== ЗАКРЫТИЕ ====================
 
 @router.callback_query(F.data == "diary_back_to_menu")
 async def diary_back_to_menu(callback: CallbackQuery, state: FSMContext):
