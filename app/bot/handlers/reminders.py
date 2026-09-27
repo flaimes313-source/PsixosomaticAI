@@ -4,7 +4,7 @@
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, Chat, User
+from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, time
@@ -16,7 +16,6 @@ from app.bot.keyboards.reminders import (
     get_time_preset_keyboard,
     get_days_keyboard,
     get_cancel_keyboard,
-    get_reminders_menu_keyboard_with_back_to_profile,
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.repositories.reminder import ReminderRepository
@@ -26,10 +25,13 @@ from app.utils.logging import logger
 router = Router()
 
 
+# ==================== МЕНЮ ИЗ ГЛАВНОГО МЕНЮ ====================
+
 @router.message(F.text == "🔔 Напоминания")
 async def show_reminders_menu(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """Показывает меню утреннего напоминания (из главного меню)."""
     await state.clear()
+    await state.update_data(reminders_back_to="menu")
 
     telegram_id = message.from_user.id
     reminder_repo = ReminderRepository(db_session)
@@ -51,15 +53,18 @@ async def show_reminders_menu(message: types.Message, state: FSMContext, db_sess
 
     await message.answer(
         text,
-        reply_markup=get_reminders_menu_keyboard(settings.enabled),
+        reply_markup=get_reminders_menu_keyboard(settings.enabled, back_to="menu"),
         parse_mode="HTML",
     )
     logger.info(f"User opened reminders from menu: {telegram_id}")
 
 
+# ==================== МЕНЮ ИЗ ПРОФИЛЯ ====================
+
 async def show_reminders_from_profile(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """Показывает настройки утреннего напоминания с возвратом в профиль."""
     await state.clear()
+    await state.update_data(reminders_back_to="profile")
 
     telegram_id = message.from_user.id
     reminder_repo = ReminderRepository(db_session)
@@ -81,11 +86,13 @@ async def show_reminders_from_profile(message: types.Message, state: FSMContext,
 
     await message.answer(
         text,
-        reply_markup=get_reminders_menu_keyboard_with_back_to_profile(settings.enabled),
+        reply_markup=get_reminders_menu_keyboard(settings.enabled, back_to="profile"),
         parse_mode="HTML",
     )
     logger.info(f"User opened reminders from profile: {telegram_id}")
 
+
+# ==================== ВКЛЮЧЕНИЕ ====================
 
 @router.callback_query(F.data == "reminders_enable")
 async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -117,6 +124,8 @@ async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_sessio
         parse_mode="HTML",
     )
 
+
+# ==================== УСТАНОВКА ВРЕМЕНИ ====================
 
 @router.callback_query(F.data.startswith("reminders_time_"))
 async def set_reminder_time(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -230,6 +239,8 @@ async def process_custom_time(message: types.Message, state: FSMContext, db_sess
     )
 
 
+# ==================== ВЫБОР ДНЕЙ ====================
+
 @router.callback_query(F.data == "reminders_days_all")
 async def set_all_days(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     await callback.answer()
@@ -270,6 +281,7 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
 
     data = await state.get_data()
     reminder_time = data.get('reminder_time')
+    back_to = data.get("reminders_back_to", "menu")
 
     if not reminder_time:
         settings = await reminder_repo.get_by_user_id(telegram_id)
@@ -297,16 +309,21 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
         f"📅 Дни: {days_str}\n"
         f"🔔 Статус: включено\n\n"
         "Ты будешь получать короткое утреннее сообщение в выбранные дни.",
-        reply_markup=get_reminders_menu_keyboard(True),
+        reply_markup=get_reminders_menu_keyboard(True, back_to=back_to),
         parse_mode="HTML",
     )
 
 
+# ==================== ОТКЛЮЧЕНИЕ ====================
+
 @router.callback_query(F.data == "reminders_disable")
-async def disable_reminders(callback: CallbackQuery, db_session: AsyncSession):
+async def disable_reminders(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Отключает напоминания."""
     try:
         await callback.answer("Утреннее сообщение отключено")
+
+        data = await state.get_data()
+        back_to = data.get("reminders_back_to", "menu")
 
         telegram_id = callback.from_user.id
         reminder_repo = ReminderRepository(db_session)
@@ -316,7 +333,7 @@ async def disable_reminders(callback: CallbackQuery, db_session: AsyncSession):
             "🔕 <b>Утреннее сообщение отключено</b>\n\n"
             "Ты больше не будешь получать утренние сообщения.\n\n"
             "Чтобы снова включить — нажми '✅ Включить'.",
-            reply_markup=get_reminders_menu_keyboard(False),
+            reply_markup=get_reminders_menu_keyboard(False, back_to=back_to),
             parse_mode="HTML",
         )
         logger.info(f"Reminders disabled for user: {telegram_id}")
@@ -325,9 +342,15 @@ async def disable_reminders(callback: CallbackQuery, db_session: AsyncSession):
         await callback.answer("❌ Ошибка при отключении", show_alert=True)
 
 
+# ==================== ВОЗВРАТ ====================
+
 @router.callback_query(F.data == "reminders_back_to_menu")
-async def back_to_reminders_menu(callback: CallbackQuery, db_session: AsyncSession):
+async def back_to_reminders_menu(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в меню напоминаний."""
     await callback.answer()
+
+    data = await state.get_data()
+    back_to = data.get("reminders_back_to", "menu")
 
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
@@ -347,32 +370,41 @@ async def back_to_reminders_menu(callback: CallbackQuery, db_session: AsyncSessi
 
     await callback.message.edit_text(
         text,
-        reply_markup=get_reminders_menu_keyboard(settings.enabled),
+        reply_markup=get_reminders_menu_keyboard(settings.enabled, back_to=back_to),
         parse_mode="HTML",
     )
 
 
 @router.callback_query(F.data == "reminders_close")
 async def close_reminders(callback: CallbackQuery, state: FSMContext):
+    """Закрывает раздел — возврат в главное меню."""
     await callback.answer()
     await state.clear()
 
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
     await callback.message.answer(
         "Главное меню:",
         reply_markup=get_main_menu_keyboard(),
     )
 
 
-# ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
-
 @router.callback_query(F.data == "reminders_back_to_profile")
 async def back_to_profile_from_reminders(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
+    """Возврат в профиль из напоминаний."""
     await callback.answer()
     await state.clear()
 
     from app.bot.handlers.profile import show_profile_from_callback
-    await callback.message.delete()
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
     await show_profile_from_callback(callback, state, db_session)
 
 
@@ -384,13 +416,11 @@ async def reminder_open_describe(callback: CallbackQuery, state: FSMContext, db_
     await callback.answer()
 
     try:
-        # Удаляем утреннее сообщение с кнопками
         try:
             await callback.message.delete()
         except Exception:
             pass
 
-        # Запускаем тот же сценарий, что и кнопка «📝 Описать состояние»
         from app.bot.handlers.describe_state import _start_describe_state_flow
         await _start_describe_state_flow(callback.message, state, db_session)
 
