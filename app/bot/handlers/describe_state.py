@@ -1,6 +1,6 @@
 """
 Обработчик для кнопки «📝 Описать состояние».
-Полноценный диалог с живым AI-ответом (без JSON, без шаблонов).
+Полноценный диалог с живым AI-ответом.
 Сохраняет всё в DiaryEvent.
 
 Логика доступа:
@@ -61,14 +61,11 @@ async def cancel_describe_state(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
     logger.info(f"User cancelled describe state: telegram_id={message.from_user.id}, state={current_state}")
 
-    # Получаем dialog_message_id, чтобы удалить приветственное сообщение бота
     data = await state.get_data()
     dialog_message_id = data.get("dialog_message_id")
 
-    # Сбрасываем FSM
     await state.clear()
 
-    # Пытаемся удалить сообщение бота с приветствием (если оно есть)
     if dialog_message_id:
         try:
             await message.bot.delete_message(
@@ -78,13 +75,11 @@ async def cancel_describe_state(message: types.Message, state: FSMContext):
         except Exception as e:
             logger.warning(f"Failed to delete dialog message on cancel: {e}")
 
-    # Пытаемся удалить сообщение пользователя («❌ Отмена»)
     try:
         await message.delete()
     except Exception:
         pass
 
-    # Показываем главное меню
     await message.answer(
         "❌ Диалог отменён.\n\n"
         "Если захочешь — можешь начать заново в любой момент.",
@@ -149,20 +144,20 @@ async def _start_describe_state_flow(
     await state.set_state(DescribeStateStates.waiting_for_description)
 
     dialog_message = await message.answer(
-        "📝 <b>Расскажи, как ты себя чувствуешь</b>\n\n"
-        "Можешь написать всё, что сейчас кажется важным: ощущения в теле, эмоции, мысли, сон, питание, нагрузку или то, что происходило сегодня.\n\n"
+        "📝 <b>Описать состояние</b>\n\n"
+        "Расскажи, что сейчас происходит.\n\n"
+        "Можно написать про ощущения в теле, эмоции, мысли, сон, "
+        "питание, нагрузку или события.\n\n"
         "Пиши своими словами. Не нужно подбирать правильные формулировки.\n\n"
         "Например:\n"
         "• «Чувствую тяжесть в груди и тревогу»\n"
         "• «Утром болела голова, сейчас стало легче»\n"
         "• «Не могу сосредоточиться, всё раздражает»\n"
         "• «После работы сильно напряглись плечи»\n\n"
-        "Не знаешь, с чего начать? Это тоже нормально.\n"
-        "Можешь просто написать:\n"
+        "Не знаешь, с чего начать? Это нормально.\n"
+        "Можно просто написать:\n"
         "«Я не знаю, что со мной».\n\n"
-        "Сома поможет разобраться в том, что ты сейчас замечаешь, и будет задавать только те уточняющие вопросы, которые действительно нужны.\n\n"
-        "Я буду уточнять только то, что действительно важно для понимания твоего состояния, и вместе мы попробуем лучше понять, что происходит и какие наблюдения могут быть важны.\n\n"
-        "🌿 Просто напиши, что происходит сейчас. Начнём с этого.",
+        "🌿 Расскажи, что происходит сейчас.",
         reply_markup=get_cancel_keyboard(),
         parse_mode="HTML",
     )
@@ -222,14 +217,12 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
 
     diary_service = DiaryEventService(db_session)
 
-    # ==================== СОХРАНЯЕМ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ ====================
     await diary_service.record_user_message(
         telegram_id=telegram_id,
         content=description,
         session_id=session_id,
         source="describe_state",
     )
-    # =========================================================================
 
     loading_message = await message.answer(
         "🧠 <b>Думаю над твоим состоянием...</b>\n\nПожалуйста, подожди.",
@@ -252,7 +245,6 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             answer = result["answer"]
             analysis_id = result.get("analysis_id")
 
-            # ==================== СОХРАНЯЕМ ОТВЕТ AI ====================
             await diary_service.record_ai_response(
                 telegram_id=telegram_id,
                 content=answer,
@@ -260,7 +252,6 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
                 source="describe_state",
                 analysis_id=analysis_id,
             )
-            # =============================================================
 
             dialog_text = f"📝 <b>Ты написал:</b>\n{description}\n\n"
             dialog_text += f"🧠 <b>Я думаю:</b>\n{answer}\n\n"
@@ -280,7 +271,6 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
             )
             await state.set_state(DescribeStateStates.waiting_for_continue)
 
-            # ==================== РЕДАКТИРУЕМ/ПЕРЕСОЗДАЁМ СООБЩЕНИЕ БОТА ====================
             new_msg = None
             if dialog_message_id:
                 try:
@@ -320,7 +310,6 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
                 await message.delete()
             except Exception:
                 pass
-            # ===================================================================
 
             logger.info(f"Describe state completed: user={telegram_id}")
 
@@ -370,7 +359,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
 
     access_service = AccessService(db_session)
 
-    # ==================== ПРОВЕРКА ЛИМИТА УТОЧНЕНИЙ (только для FREE) ====================
     can_continue, limit_message = await access_service.can_continue_free_dialog(telegram_id)
 
     if not can_continue:
@@ -387,7 +375,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         )
         logger.info(f"Free dialog limit reached for user {telegram_id}")
         return
-    # ====================================================================================
 
     data = await state.get_data()
     session_id = data.get("session_id")
@@ -400,14 +387,12 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
 
     diary_service = DiaryEventService(db_session)
 
-    # ==================== СОХРАНЯЕМ СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ ====================
     await diary_service.record_user_message(
         telegram_id=telegram_id,
         content=user_text,
         session_id=session_id,
         source="describe_state",
     )
-    # =========================================================================
 
     loading_message = await message.answer(
         "🧠 <b>Думаю...</b>\n\nПожалуйста, подожди.",
@@ -452,7 +437,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
 
         dialog_history.append({"role": "assistant", "content": response})
 
-        # ==================== СОХРАНЯЕМ ОТВЕТ AI ====================
         await diary_service.record_ai_response(
             telegram_id=telegram_id,
             content=response,
@@ -460,7 +444,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
             source="describe_state",
             analysis_id=analysis_id,
         )
-        # =============================================================
 
         try:
             if analysis_id:
@@ -497,7 +480,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
             dialog_text=new_dialog_text,
         )
 
-        # ==================== УВЕЛИЧИВАЕМ СЧЁТЧИК УТОЧНЕНИЙ (только для FREE) ====================
         is_pro = await access_service.is_pro(telegram_id)
         if not is_pro:
             new_count = await access_service.increment_free_question(telegram_id)
@@ -505,9 +487,7 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
             if new_count >= 3:
                 await access_service.finish_free_dialog(telegram_id)
                 logger.info(f"Free dialog finished for user {telegram_id} (3 questions reached)")
-        # ========================================================================================
 
-        # ==================== РЕДАКТИРУЕМ/ПЕРЕСОЗДАЁМ СООБЩЕНИЕ БОТА ====================
         new_msg = None
         if dialog_message_id:
             try:
@@ -547,7 +527,6 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
             await message.delete()
         except Exception:
             pass
-        # ===================================================================
 
     except Exception as e:
         try:
@@ -577,13 +556,11 @@ async def describe_finish(callback: CallbackQuery, state: FSMContext, db_session
     telegram_id = callback.from_user.id
     access_service = AccessService(db_session)
 
-    # ==================== ЕСЛИ FREE — ПОМЕЧАЕМ ДИАЛОГ КАК ИСПОЛЬЗОВАННЫЙ ====================
     if not await access_service.is_pro(telegram_id):
         user = await access_service._get_user(telegram_id)
         if user and not user.free_dialog_used:
             await access_service.finish_free_dialog(telegram_id)
             logger.info(f"Free dialog marked as used (via finish) for user {telegram_id}")
-    # ========================================================================================
 
     data = await state.get_data()
     dialog_message_id = data.get("dialog_message_id")

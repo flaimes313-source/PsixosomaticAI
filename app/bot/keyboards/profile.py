@@ -19,7 +19,7 @@ def get_profile_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📋 История сессий", callback_data="profile_history"),
         ],
         [
-            InlineKeyboardButton(text="❓ Помощь", callback_data="profile_help"),
+            InlineKeyboardButton(text="❓ Справка", callback_data="profile_help"),
         ],
         [
             InlineKeyboardButton(text="🔙 Назад в меню", callback_data="profile_back_to_menu"),

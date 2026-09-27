@@ -30,8 +30,11 @@ async def show_settings(message: types.Message, state: FSMContext, back_to: str 
 
     await message.answer(
         "⚙️ <b>Управление данными</b>\n\n"
-        "Здесь вы можете управлять своими данными.\n\n"
-        "Доступные действия:",
+        "Здесь ты можешь управлять своими сохранёнными данными.\n\n"
+        "🗑 <b>Удалить все данные</b>\n"
+        "Удалит все сохранённые диалоги, записи, настройки напоминаний "
+        "и историю подписок.\n\n"
+        "⚠️ После удаления восстановить данные будет нельзя.",
         reply_markup=get_settings_keyboard(back_to=back_to),
         parse_mode="HTML",
     )
