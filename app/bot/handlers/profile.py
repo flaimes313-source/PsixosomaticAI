@@ -115,10 +115,7 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
 # ==================== ПОКАЗ ПРОФИЛЯ ИЗ CALLBACK ====================
 
 async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """
-    Показывает профиль пользователя из callback.
-    Отправляет НОВОЕ сообщение (не редактирует удалённое).
-    """
+    """Показывает профиль пользователя из callback."""
     await state.clear()
 
     user_id = callback.from_user.id
@@ -157,7 +154,6 @@ async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext,
     else:
         plan_status = "🔓 Демо (FREE)"
 
-    # ==================== REMINDER (создаём если нет) ====================
     reminder_repo = ReminderRepository(db_session)
     reminder = await reminder_repo.get_or_create(user_id)
 
@@ -167,7 +163,6 @@ async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext,
         reminder_status = "✅ 09:00 (по умолчанию)"
     else:
         reminder_status = "❌ Выключено"
-    # =====================================================================
 
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Неизвестно"
 
@@ -240,7 +235,7 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
     elif action == "settings":
         await callback.message.delete()
         from app.bot.handlers.settings import show_settings
-        await show_settings(callback.message, state)
+        await show_settings(callback.message, state, back_to="profile")   # ← ИЗМЕНЕНО
 
     elif action == "reminders":
         await callback.message.delete()
@@ -267,7 +262,7 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
             "• Время взаимодействия\n"
             "• История анализов\n\n"
             "Вы можете удалить все свои данные\n"
-            "в разделе ⚙️ Настройки.\n\n"
+            "в разделе ⚙️ Управление данными.\n\n"     # ← ИЗМЕНЕНО
             "Важно: бот не ставит медицинские диагнозы\n"
             "и не заменяет профессиональную помощь."
         )

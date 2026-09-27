@@ -12,7 +12,7 @@ def get_profile_menu_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔔 Напоминания", callback_data="profile_reminders"),
         ],
         [
-            InlineKeyboardButton(text="⚙️ Настройки", callback_data="profile_settings"),
+            InlineKeyboardButton(text="⚙️ Управление данными", callback_data="profile_settings"),
             InlineKeyboardButton(text="🔐 Конфиденциальность", callback_data="profile_privacy"),
         ],
         [
