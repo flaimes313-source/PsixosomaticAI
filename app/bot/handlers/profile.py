@@ -1,7 +1,5 @@
 """
 Обработчик раздела "Профиль".
-
-Логирование добавлено для отладки расхождения статуса (профиль vs напоминания).
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -25,6 +23,8 @@ from app.utils.logging import logger
 
 router = Router()
 
+
+# ==================== ОСНОВНОЙ ПОКАЗ ПРОФИЛЯ ====================
 
 @router.message(F.text == "👤 Профиль")
 async def show_profile(message: types.Message, state: FSMContext, db_session: AsyncSession):
@@ -254,12 +254,22 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
     elif action == "reminders":
         await callback.message.delete()
         from app.bot.handlers.reminders import show_reminders_from_profile
-        await show_reminders_from_profile(callback.message, state, db_session)
+        await show_reminders_from_profile(
+            callback.message,
+            state,
+            db_session,
+            telegram_id=callback.from_user.id,   # ← ЯВНО ПЕРЕДАЁМ
+        )
 
     elif action == "subscription":
         await callback.message.delete()
         from app.bot.handlers.pro import show_pro_from_profile
-        await show_pro_from_profile(callback.message, state, db_session)
+        await show_pro_from_profile(
+            callback.message,
+            state,
+            db_session,
+            telegram_id=callback.from_user.id,   # ← ЯВНО ПЕРЕДАЁМ
+        )
 
     elif action == "history":
         await callback.message.delete()

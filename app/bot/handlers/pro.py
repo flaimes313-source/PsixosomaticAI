@@ -60,7 +60,7 @@ def get_pro_main_keyboard(is_pro: bool, with_back_to_profile: bool = False) -> I
     if with_back_to_profile:
         buttons.append([
             InlineKeyboardButton(
-                text="🔙 Назад в профиль",
+                text="↩️ Назад в профиль",
                 callback_data="pro_back_to_profile"
             )
         ])
@@ -182,11 +182,21 @@ async def show_pro_menu(message: types.Message, state: FSMContext, db_session: A
     logger.info(f"User opened PRO menu: {user_id}")
 
 
-async def show_pro_from_profile(message: types.Message, state: FSMContext, db_session: AsyncSession):
+async def show_pro_from_profile(
+    message: types.Message,
+    state: FSMContext,
+    db_session: AsyncSession,
+    telegram_id: int = None,   # ← ЯВНО ПЕРЕДАЁТСЯ ИЗ CALLBACK
+):
     """Показывает Сома. PRO с возвратом в профиль."""
     await state.clear()
 
-    user_id = message.from_user.id
+    # Если telegram_id не передан — берём из message (fallback)
+    if telegram_id is None:
+        telegram_id = message.from_user.id
+
+    user_id = telegram_id
+
     access_service = AccessService(db_session)
     is_pro = await access_service.is_pro(user_id)
 

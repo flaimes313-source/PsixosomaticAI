@@ -1,8 +1,6 @@
 """
 Обработчик для раздела «Утреннее сообщение».
 Пользователь может включить/выключить напоминание, изменить время и дни.
-
-Логирование добавлено для отладки расхождения статуса (профиль vs напоминания).
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -69,12 +67,20 @@ async def show_reminders_menu(message: types.Message, state: FSMContext, db_sess
 
 # ==================== МЕНЮ ИЗ ПРОФИЛЯ ====================
 
-async def show_reminders_from_profile(message: types.Message, state: FSMContext, db_session: AsyncSession):
+async def show_reminders_from_profile(
+    message: types.Message,
+    state: FSMContext,
+    db_session: AsyncSession,
+    telegram_id: int = None,   # ← ЯВНО ПЕРЕДАЁТСЯ
+):
     """Показывает настройки утреннего напоминания с возвратом в профиль."""
     await state.clear()
     await state.update_data(reminders_back_to="profile")
 
-    telegram_id = message.from_user.id
+    # Если telegram_id не передан — берём из message (fallback)
+    if telegram_id is None:
+        telegram_id = message.from_user.id
+
     reminder_repo = ReminderRepository(db_session)
     settings = await reminder_repo.get_or_create(telegram_id)
 
@@ -118,7 +124,7 @@ async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_sessio
 
     before = await reminder_repo.get_by_user_id(telegram_id)
     logger.info(
-        f"[ENABLE_REMINDERS] BEFORE update: user={telegram_id}, "
+        f"[ENABLE_REMINDERS] BEFORE: user={telegram_id}, "
         f"enabled={before.enabled if before else None}, "
         f"time={before.reminder_time if before else None}"
     )
@@ -137,7 +143,7 @@ async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_sessio
 
     after = await reminder_repo.get_by_user_id(telegram_id)
     logger.info(
-        f"[ENABLE_REMINDERS] AFTER update: user={telegram_id}, "
+        f"[ENABLE_REMINDERS] AFTER: user={telegram_id}, "
         f"enabled={after.enabled if after else None}, "
         f"time={after.reminder_time if after else None}"
     )
@@ -307,7 +313,7 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
     back_to = data.get("reminders_back_to", "menu")
 
     logger.info(
-        f"[SAVE_DAYS] BEFORE: user={telegram_id}, days={days}, "
+        f"[SAVE_DAYS] user={telegram_id}, days={days}, "
         f"reminder_time={reminder_time}, back_to={back_to}"
     )
 
@@ -330,13 +336,6 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
         reminder_time=reminder_time,
         timezone=user_timezone,
         days_of_week=days,
-    )
-
-    after = await reminder_repo.get_by_user_id(telegram_id)
-    logger.info(
-        f"[SAVE_DAYS] AFTER: user={telegram_id}, "
-        f"enabled={after.enabled if after else None}, "
-        f"time={after.reminder_time if after else None}"
     )
 
     await state.clear()
