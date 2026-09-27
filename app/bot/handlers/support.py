@@ -24,15 +24,14 @@ router = Router()
 ADMIN_ID = 462035571
 
 
-@router.message(F.text == "❓ Поддержка")
+@router.message(F.text == "🆘 Поддержка")
 async def show_support_menu(message: types.Message, state: FSMContext):
     """Показывает меню поддержки."""
     await state.clear()
-    
+
     await message.answer(
-        "❓ <b>Поддержка</b>\n\n"
-        "Здесь ты можешь задать любой вопрос.\n"
-        "Мы ответим тебе в ближайшее время.\n\n"
+        "🆘 <b>Есть вопрос или проблема?</b>\n\n"
+        "Напиши сообщение, и мы постараемся помочь.\n\n"
         "📝 Напиши свой вопрос ниже:",
         reply_markup=get_support_menu_keyboard(),
         parse_mode="HTML",
@@ -44,17 +43,17 @@ async def show_support_menu(message: types.Message, state: FSMContext):
 async def process_support_question(message: types.Message, state: FSMContext, db_session: AsyncSession):
     """Обрабатывает вопрос пользователя и отправляет оповещение админу."""
     question = message.text.strip()
-    
+
     if question.startswith('/'):
         return
-    
+
     if len(question) < 5:
         await message.answer(
             "⚠️ Пожалуйста, напиши вопрос подробнее (минимум 5 символов).",
             reply_markup=get_support_cancel_keyboard(),
         )
         return
-    
+
     # Сохраняем обращение в БД
     support_request = SupportRequest(
         user_id=message.from_user.id,
@@ -63,10 +62,10 @@ async def process_support_question(message: types.Message, state: FSMContext, db
     )
     db_session.add(support_request)
     await db_session.commit()
-    
+
     # Сохраняем ID обращения в FSM
     await state.update_data(request_id=support_request.id)
-    
+
     # Ответ пользователю
     await message.answer(
         "✅ <b>Ваше обращение отправлено!</b>\n\n"
@@ -77,24 +76,21 @@ async def process_support_question(message: types.Message, state: FSMContext, db
         parse_mode="HTML",
     )
     await state.clear()
-    
+
     logger.info(f"Support request created: id={support_request.id}, user={message.from_user.id}")
-    
+
     # ==================== ОПОВЕЩЕНИЕ АДМИНА ====================
     try:
-        # Получаем имя пользователя
         user_result = await db_session.execute(
             select(User).where(User.telegram_id == message.from_user.id)
         )
         user = user_result.scalar_one_or_none()
         user_name = user.first_name if user else "Неизвестно"
-        
-        # Экранируем все переменные
+
         safe_user_id = str(message.from_user.id)
         safe_user_name = escape(user_name)
         safe_question = escape(question)
-        
-        # Отправляем оповещение админу (БЕЗ HTML-ТЕГОВ)
+
         await message.bot.send_message(
             chat_id=ADMIN_ID,
             text=(
@@ -125,7 +121,7 @@ async def cancel_support(callback: CallbackQuery, state: FSMContext):
     """Отмена обращения в поддержку."""
     await callback.answer("Отменяем...")
     await state.clear()
-    
+
     await callback.message.delete()
     await callback.message.answer(
         "Главное меню:",
