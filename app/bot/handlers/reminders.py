@@ -1,13 +1,15 @@
 """
 Обработчик для раздела «Утреннее сообщение».
 Пользователь может включить/выключить напоминание, изменить время и дни.
+
+Логирование добавлено для отладки расхождения статуса (профиль vs напоминания).
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from datetime import datetime, time
+from datetime import time
 from typing import Optional, List
 
 from app.bot.states import ReminderStates
@@ -37,7 +39,13 @@ async def show_reminders_menu(message: types.Message, state: FSMContext, db_sess
     reminder_repo = ReminderRepository(db_session)
     settings = await reminder_repo.get_or_create(telegram_id)
 
-    status = "✅ включено" if settings.enabled else "❌ выключено"
+    logger.info(
+        f"[SHOW_REMINDERS_MENU] user={telegram_id}, "
+        f"enabled={settings.enabled}, time={settings.reminder_time}, "
+        f"days={settings.days_of_week}, updated_at={settings.updated_at}"
+    )
+
+    status = "включено" if settings.enabled else "выключено"
     time_str = settings.reminder_time.strftime("%H:%M") if settings.reminder_time else "09:00"
     days_str = _format_days(settings.days_of_week) if settings.days_of_week else "каждый день"
 
@@ -70,7 +78,13 @@ async def show_reminders_from_profile(message: types.Message, state: FSMContext,
     reminder_repo = ReminderRepository(db_session)
     settings = await reminder_repo.get_or_create(telegram_id)
 
-    status = "✅ включено" if settings.enabled else "❌ выключено"
+    logger.info(
+        f"[SHOW_REMINDERS_FROM_PROFILE] user={telegram_id}, "
+        f"enabled={settings.enabled}, time={settings.reminder_time}, "
+        f"days={settings.days_of_week}, updated_at={settings.updated_at}"
+    )
+
+    status = "включено" if settings.enabled else "выключено"
     time_str = settings.reminder_time.strftime("%H:%M") if settings.reminder_time else "09:00"
     days_str = _format_days(settings.days_of_week) if settings.days_of_week else "каждый день"
 
@@ -102,6 +116,13 @@ async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_sessio
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
 
+    before = await reminder_repo.get_by_user_id(telegram_id)
+    logger.info(
+        f"[ENABLE_REMINDERS] BEFORE update: user={telegram_id}, "
+        f"enabled={before.enabled if before else None}, "
+        f"time={before.reminder_time if before else None}"
+    )
+
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
@@ -112,6 +133,13 @@ async def enable_reminders(callback: CallbackQuery, state: FSMContext, db_sessio
         telegram_id,
         enabled=True,
         timezone=user_timezone,
+    )
+
+    after = await reminder_repo.get_by_user_id(telegram_id)
+    logger.info(
+        f"[ENABLE_REMINDERS] AFTER update: user={telegram_id}, "
+        f"enabled={after.enabled if after else None}, "
+        f"time={after.reminder_time if after else None}"
     )
 
     await state.set_state(ReminderStates.waiting_for_time)
@@ -133,6 +161,7 @@ async def set_reminder_time(callback: CallbackQuery, state: FSMContext, db_sessi
     await callback.answer()
 
     time_str = callback.data.replace("reminders_time_", "")
+    logger.info(f"[SET_REMINDER_TIME] user={callback.from_user.id}, time_str={time_str}")
 
     if time_str == "custom":
         await state.set_state(ReminderStates.waiting_for_custom_time)
@@ -149,7 +178,7 @@ async def set_reminder_time(callback: CallbackQuery, state: FSMContext, db_sessi
     try:
         hour, minute = map(int, time_str.split(':'))
         reminder_time = time(hour=hour, minute=minute)
-    except:
+    except Exception:
         await callback.message.edit_text(
             "⚠️ Неверный формат времени. Попробуй ещё раз.",
             reply_markup=get_time_preset_keyboard(),
@@ -203,7 +232,7 @@ async def process_custom_time(message: types.Message, state: FSMContext, db_sess
         if hour < 0 or hour > 23 or minute < 0 or minute > 59:
             raise ValueError
         reminder_time = time(hour=hour, minute=minute)
-    except:
+    except Exception:
         await message.answer(
             "⚠️ Неверный формат. Введи время в формате <b>HH:MM</b>\n"
             "Например: 09:00",
@@ -273,15 +302,20 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
     telegram_id = callback.from_user.id
     reminder_repo = ReminderRepository(db_session)
 
+    data = await state.get_data()
+    reminder_time = data.get('reminder_time')
+    back_to = data.get("reminders_back_to", "menu")
+
+    logger.info(
+        f"[SAVE_DAYS] BEFORE: user={telegram_id}, days={days}, "
+        f"reminder_time={reminder_time}, back_to={back_to}"
+    )
+
     user_result = await db_session.execute(
         select(User).where(User.telegram_id == telegram_id)
     )
     user = user_result.scalar_one_or_none()
     user_timezone = user.timezone if user and user.timezone else "UTC"
-
-    data = await state.get_data()
-    reminder_time = data.get('reminder_time')
-    back_to = data.get("reminders_back_to", "menu")
 
     if not reminder_time:
         settings = await reminder_repo.get_by_user_id(telegram_id)
@@ -296,6 +330,13 @@ async def _save_days(callback: CallbackQuery, state: FSMContext, db_session: Asy
         reminder_time=reminder_time,
         timezone=user_timezone,
         days_of_week=days,
+    )
+
+    after = await reminder_repo.get_by_user_id(telegram_id)
+    logger.info(
+        f"[SAVE_DAYS] AFTER: user={telegram_id}, "
+        f"enabled={after.enabled if after else None}, "
+        f"time={after.reminder_time if after else None}"
     )
 
     await state.clear()
@@ -322,12 +363,27 @@ async def disable_reminders(callback: CallbackQuery, state: FSMContext, db_sessi
     try:
         await callback.answer("Утреннее сообщение отключено")
 
+        telegram_id = callback.from_user.id
+        reminder_repo = ReminderRepository(db_session)
+
+        before = await reminder_repo.get_by_user_id(telegram_id)
+        logger.info(
+            f"[DISABLE_REMINDERS] BEFORE: user={telegram_id}, "
+            f"enabled={before.enabled if before else None}, "
+            f"time={before.reminder_time if before else None}"
+        )
+
         data = await state.get_data()
         back_to = data.get("reminders_back_to", "menu")
 
-        telegram_id = callback.from_user.id
-        reminder_repo = ReminderRepository(db_session)
         await reminder_repo.update(telegram_id, enabled=False)
+
+        after = await reminder_repo.get_by_user_id(telegram_id)
+        logger.info(
+            f"[DISABLE_REMINDERS] AFTER: user={telegram_id}, "
+            f"enabled={after.enabled if after else None}, "
+            f"time={after.reminder_time if after else None}"
+        )
 
         await callback.message.edit_text(
             "🔕 <b>Утреннее сообщение отключено</b>\n\n"
@@ -356,7 +412,13 @@ async def back_to_reminders_menu(callback: CallbackQuery, state: FSMContext, db_
     reminder_repo = ReminderRepository(db_session)
     settings = await reminder_repo.get_or_create(telegram_id)
 
-    status = "✅ включено" if settings.enabled else "❌ выключено"
+    logger.info(
+        f"[BACK_TO_REMINDERS_MENU] user={telegram_id}, "
+        f"enabled={settings.enabled}, time={settings.reminder_time}, "
+        f"back_to={back_to}"
+    )
+
+    status = "включено" if settings.enabled else "выключено"
     time_str = settings.reminder_time.strftime("%H:%M") if settings.reminder_time else "09:00"
     days_str = _format_days(settings.days_of_week) if settings.days_of_week else "каждый день"
 
@@ -398,6 +460,8 @@ async def back_to_profile_from_reminders(callback: CallbackQuery, state: FSMCont
     await callback.answer()
     await state.clear()
 
+    logger.info(f"[BACK_TO_PROFILE_FROM_REMINDERS] user={callback.from_user.id}")
+
     from app.bot.handlers.profile import show_profile_from_callback
 
     try:
@@ -424,10 +488,10 @@ async def reminder_open_describe(callback: CallbackQuery, state: FSMContext, db_
         from app.bot.handlers.describe_state import _start_describe_state_flow
         await _start_describe_state_flow(callback.message, state, db_session)
 
-        logger.info(f"✅ describe_state opened from morning message for user {callback.from_user.id}")
+        logger.info(f"describe_state opened from morning message for user {callback.from_user.id}")
 
     except Exception as e:
-        logger.error(f"❌ Error opening describe_state from reminder: {e}", exc_info=True)
+        logger.error(f"Error opening describe_state from reminder: {e}", exc_info=True)
         await callback.bot.send_message(
             chat_id=callback.from_user.id,
             text="⚠️ Произошла ошибка. Попробуй ещё раз через меню.",

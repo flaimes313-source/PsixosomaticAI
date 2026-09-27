@@ -1,5 +1,7 @@
 """
 Обработчик раздела "Профиль".
+
+Логирование добавлено для отладки расхождения статуса (профиль vs напоминания).
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -15,7 +17,6 @@ from app.bot.keyboards.profile import (
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.db.models.user import User
-from app.db.models.reminder import ReminderSettings
 from app.db.repositories.reminder import ReminderRepository
 from app.db.repositories.diary_repository import DiaryRepository
 from app.services.access_service import AccessService
@@ -66,9 +67,15 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
     else:
         plan_status = "🔓 Демо (FREE)"
 
-    # ==================== REMINDER (создаём если нет) ====================
     reminder_repo = ReminderRepository(db_session)
     reminder = await reminder_repo.get_or_create(user_id)
+
+    logger.info(
+        f"[PROFILE] user={user_id}, "
+        f"reminder_enabled={reminder.enabled}, "
+        f"reminder_time={reminder.reminder_time}, "
+        f"updated_at={reminder.updated_at}"
+    )
 
     if reminder.enabled and reminder.reminder_time:
         reminder_status = f"✅ {reminder.reminder_time.strftime('%H:%M')}"
@@ -76,7 +83,6 @@ async def show_profile(message: types.Message, state: FSMContext, db_session: As
         reminder_status = "✅ 09:00 (по умолчанию)"
     else:
         reminder_status = "❌ Выключено"
-    # =====================================================================
 
     created_date = user.created_at.strftime("%d.%m.%Y") if user.created_at else "Неизвестно"
 
@@ -157,6 +163,13 @@ async def show_profile_from_callback(callback: CallbackQuery, state: FSMContext,
     reminder_repo = ReminderRepository(db_session)
     reminder = await reminder_repo.get_or_create(user_id)
 
+    logger.info(
+        f"[PROFILE_FROM_CALLBACK] user={user_id}, "
+        f"reminder_enabled={reminder.enabled}, "
+        f"reminder_time={reminder.reminder_time}, "
+        f"updated_at={reminder.updated_at}"
+    )
+
     if reminder.enabled and reminder.reminder_time:
         reminder_status = f"✅ {reminder.reminder_time.strftime('%H:%M')}"
     elif reminder.enabled:
@@ -218,6 +231,7 @@ async def profile_menu_actions(callback: CallbackQuery, state: FSMContext, db_se
 async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     """Внутренний обработчик действий в профиле."""
     action = callback.data.replace("profile_", "")
+    logger.info(f"[PROFILE_ACTION] user={callback.from_user.id}, action={action}")
 
     if action == "back_to_profile":
         await callback.message.delete()
@@ -235,7 +249,7 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
     elif action == "settings":
         await callback.message.delete()
         from app.bot.handlers.settings import show_settings
-        await show_settings(callback.message, state, back_to="profile")   # ← ИЗМЕНЕНО
+        await show_settings(callback.message, state, back_to="profile")
 
     elif action == "reminders":
         await callback.message.delete()
@@ -262,7 +276,7 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
             "• Время взаимодействия\n"
             "• История анализов\n\n"
             "Вы можете удалить все свои данные\n"
-            "в разделе ⚙️ Управление данными.\n\n"     # ← ИЗМЕНЕНО
+            "в разделе ⚙️ Управление данными.\n\n"
             "Важно: бот не ставит медицинские диагнозы\n"
             "и не заменяет профессиональную помощь."
         )
