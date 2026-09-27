@@ -17,7 +17,6 @@ from app.utils.logging import logger
 router = Router()
 
 
-# Сопоставление текста кнопки с правильным названием часового пояса
 TZ_MAPPING = {
     "UTC-12:00 (Камчатка)": "Pacific/Midway",
     "UTC-11:00 (Магадан)": "Asia/Magadan",
@@ -47,10 +46,8 @@ TZ_MAPPING = {
 }
 
 
-# ==================== НОВЫЙ ПРИВЕТСТВЕННЫЙ ТЕКСТ ====================
-
 def get_welcome_text() -> str:
-    """Единый приветственный текст (используется в нескольких местах)."""
+    """Единый приветственный текст."""
     return (
         "👋 <b>Привет!</b>\n\n"
         "Я — <b>Сома. Забота о себе.</b>\n\n"
@@ -68,29 +65,19 @@ def get_welcome_text() -> str:
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message, db_session: AsyncSession, state: FSMContext):
-    """
-    Обработчик команды /start.
-
-    Приоритет: /start всегда очищает FSM состояние.
-    """
+    """Обработчик команды /start."""
     tg_user = message.from_user
 
-    # Очищаем любое состояние FSM
     await state.clear()
 
     user_repo = UserRepository(db_session)
-
-    # Проверяем, есть ли пользователь
     user = await user_repo.get_by_telegram_id(tg_user.id)
 
     if user and user.timezone:
-        # Если пользователь уже есть и часовой пояс выбран - показываем меню
         await show_main_menu(message, tg_user, db_session)
         return
 
-    # Если пользователь есть, но timezone не выбран
     if user and not user.timezone:
-        # Спрашиваем часовой пояс
         await state.set_state(RegistrationStates.waiting_for_timezone)
         await state.update_data(telegram_id=tg_user.id)
 
@@ -103,7 +90,6 @@ async def cmd_start(message: types.Message, db_session: AsyncSession, state: FSM
         )
         return
 
-    # Если пользователя нет - создаем и спрашиваем timezone
     await state.set_state(RegistrationStates.waiting_for_timezone)
     await state.update_data(
         telegram_id=tg_user.id,
@@ -127,11 +113,9 @@ async def process_timezone(message: types.Message, state: FSMContext, db_session
     """Обработка выбора часового пояса."""
     text = message.text.strip()
 
-    # Пропуск
     if text == "⏭ Пропустить (UTC)":
         timezone = "UTC"
     else:
-        # Получаем правильное название часового пояса из маппинга
         timezone = TZ_MAPPING.get(text, "UTC")
 
         if timezone == "UTC":
@@ -148,8 +132,6 @@ async def process_timezone(message: types.Message, state: FSMContext, db_session
     language_code = data.get("language_code")
 
     user_repo = UserRepository(db_session)
-
-    # Создаем или обновляем пользователя с timezone
     user = await user_repo.get_or_create(
         telegram_id=telegram_id,
         username=username,
@@ -158,7 +140,6 @@ async def process_timezone(message: types.Message, state: FSMContext, db_session
         language_code=language_code,
     )
 
-    # Обновляем timezone
     if user:
         user.timezone = timezone
         await db_session.commit()
@@ -172,7 +153,6 @@ async def process_timezone(message: types.Message, state: FSMContext, db_session
         reply_markup=get_main_menu_keyboard(),
     )
 
-    # Показываем приветствие
     await message.answer(
         text=get_welcome_text(),
         reply_markup=get_main_menu_keyboard(),
