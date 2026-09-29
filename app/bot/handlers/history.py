@@ -7,6 +7,7 @@
 - Компактные кнопки: 🕐 HH:MM · <начало сообщения>.
 - Пагинация по 12 записей.
 - Убрана кнопка «🏠 В меню», оставлена «↩️ В профиль».
+- ФИКС: разбиение длинных диалогов на части (Telegram: лимит 4096 символов).
 """
 from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
@@ -27,6 +28,9 @@ router = Router()
 
 # Сколько записей показывать на одной странице
 PAGE_SIZE = 12
+
+# Лимит Telegram на длину сообщения — 4096. Берём с запасом.
+MAX_MESSAGE_LENGTH = 4000
 
 
 # ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
@@ -49,11 +53,10 @@ def _truncate(text: str, limit: int = 40) -> str:
     if len(text) <= limit:
         return text
 
-    # Пытаемся не разрезать слово посередине
     truncated = text[:limit]
     last_space = truncated.rfind(" ")
 
-    if last_space > limit * 0.6:  # если пробел не слишком близко к началу
+    if last_space > limit * 0.6:
         truncated = truncated[:last_space]
 
     return truncated.rstrip() + "..."
@@ -111,18 +114,92 @@ def _group_by_sessions(events: list) -> dict:
     return sessions
 
 
+def _split_message(text: str, max_len: int = MAX_MESSAGE_LENGTH):
+    """
+    Разбивает длинный текст на части по max_len символов.
+    Старается резать по переносам строк, чтобы не рвать слова.
+    """
+    if len(text) <= max_len:
+        return [text]
+
+    parts = []
+    remaining = text
+
+    while remaining:
+        if len(remaining) <= max_len:
+            parts.append(remaining)
+            break
+
+        # Ищем последний перенос строки в пределах max_len
+        cut = remaining.rfind("\n", 0, max_len)
+
+        # Если переносов нет или они слишком близко к началу — режем по пробелу
+        if cut == -1 or cut < max_len * 0.5:
+            cut = remaining.rfind(" ", 0, max_len)
+
+        # Если и пробела нет — режем жёстко
+        if cut == -1 or cut < max_len * 0.5:
+            cut = max_len
+
+        parts.append(remaining[:cut])
+        remaining = remaining[cut:].lstrip("\n ")
+
+    return parts
+
+
+async def _send_long_message(
+    callback: CallbackQuery,
+    text: str,
+    keyboard: InlineKeyboardMarkup = None,
+):
+    """
+    Отправляет текст, разбивая его на части, если он длиннее лимита Telegram.
+    Кнопки — на последней части.
+    """
+    parts = _split_message(text)
+
+    # Если одна часть — пытаемся отредактировать, иначе отправляем
+    if len(parts) == 1:
+        try:
+            await callback.message.edit_text(
+                parts[0],
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+            return
+        except Exception:
+            await callback.message.answer(
+                parts[0],
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+            return
+
+    # Несколько частей: удаляем старое сообщение
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    # Отправляем все части, кроме последней — без кнопок
+    for part in parts[:-1]:
+        await callback.message.answer(part, parse_mode="HTML")
+
+    # Последняя — с кнопками
+    await callback.message.answer(
+        parts[-1],
+        reply_markup=keyboard,
+        parse_mode="HTML",
+    )
+
+
 def _build_page_text_and_keyboard(
     sessions: dict,
     user_tz: ZoneInfo,
     page: int = 0,
 ):
-    """
-    Строит текст истории + клавиатуру с пагинацией.
-
-    Returns:
-        (text, keyboard, total_pages)
-    """
-    sessions_list = list(sessions.items())  # [(session_id, events), ...]
+    """Строит текст истории + клавиатуру с пагинацией."""
+    sessions_list = list(sessions.items())
 
     total = len(sessions_list)
     total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
@@ -133,7 +210,6 @@ def _build_page_text_and_keyboard(
     end = start + PAGE_SIZE
     page_sessions = sessions_list[start:end]
 
-    # Текст
     text = "📋 <b>История</b>\n\n"
 
     for session_id, session_events in page_sessions:
@@ -152,7 +228,6 @@ def _build_page_text_and_keyboard(
     else:
         text += f"📌 Показаны последние {total} диалогов"
 
-    # Кнопки
     buttons = []
 
     for session_id, session_events in page_sessions:
@@ -164,7 +239,6 @@ def _build_page_text_and_keyboard(
             )
         ])
 
-    # Пагинация
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton(
@@ -179,7 +253,6 @@ def _build_page_text_and_keyboard(
     if nav_buttons:
         buttons.append(nav_buttons)
 
-    # Возврат в профиль (только он, без «В меню»)
     buttons.append([
         InlineKeyboardButton(text="↩️ В профиль", callback_data="back_to_profile_from_history")
     ])
@@ -374,10 +447,8 @@ async def show_history_dialog_detail(callback: CallbackQuery, db_session: AsyncS
         ]
     )
 
-    try:
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    except Exception:
-        await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    # ФИКС: если текст длинный — разбиваем на части
+    await _send_long_message(callback, text, keyboard)
 
 
 # ==================== ВОЗВРАТ В ПРОФИЛЬ ====================
@@ -399,5 +470,3 @@ async def back_to_profile_from_history(callback: CallbackQuery, state: FSMContex
 
 
 # ==================== УДАЛЕНО: КНОПКА «В МЕНЮ» ====================
-# По ТЗ убрана из истории.
-# Callback 'back_to_menu' больше не создаётся в этом разделе.
