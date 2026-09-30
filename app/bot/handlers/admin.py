@@ -17,6 +17,7 @@ from app.db.models.user import User
 from app.db.models.analysis import Analysis
 from app.db.models.diary import DiaryEntry
 from app.db.models.subscription import Subscription, PlanType
+from app.db.repositories.support import SupportRepository
 from app.bot.states import AdminStates
 from app.bot.keyboards.admin import (
     get_admin_menu_keyboard,
@@ -24,6 +25,9 @@ from app.bot.keyboards.admin import (
     get_confirm_broadcast_keyboard,
     get_broadcast_options_keyboard,
     get_broadcast_recipients_keyboard,
+    get_support_requests_list_keyboard,
+    get_support_request_view_keyboard,
+    get_support_reply_cancel_keyboard,
 )
 from app.bot.keyboards import get_main_menu_keyboard
 from app.utils.logging import logger
@@ -31,6 +35,7 @@ from app.utils.logging import logger
 router = Router()
 
 ADMIN_ID = 462035571
+SUPPORT_PAGE_SIZE = 10
 
 
 def is_admin(user_id: int) -> bool:
@@ -44,7 +49,7 @@ async def admin_panel(message: types.Message, state: FSMContext, db_session: Asy
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         return
-    
+
     await state.clear()
     await message.answer(
         "🛡️ Админ-панель\n\n"
@@ -57,59 +62,312 @@ async def admin_panel(message: types.Message, state: FSMContext, db_session: Asy
 @router.callback_query(F.data.startswith("admin_"))
 async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
     await callback.answer()
-    
+
     action = callback.data.replace("admin_", "")
-    
+
+    # ---------- ВОЗВРАТ В ГЛАВНОЕ МЕНЮ АДМИНКИ ----------
     if action == "back":
+        await state.clear()
         await callback.message.edit_text(
             "🛡️ Админ-панель\n\n"
             "Выбери действие:",
             reply_markup=get_admin_menu_keyboard(),
         )
         return
-    
+
+    # ---------- БЕЛЫЙ СПИСОК ----------
     elif action == "whitelist":
         await show_whitelist(callback, db_session)
-    
+
+    # ---------- РАССЫЛКА ----------
     elif action == "broadcast":
         await callback.message.edit_text(
             "📢 Создать рассылку\n\n"
             "Выбери получателей:",
             reply_markup=get_broadcast_recipients_keyboard(),
         )
-    
+
+    # ---------- ОБРАЩЕНИЯ В ПОДДЕРЖКУ ----------
     elif action == "support_requests":
-        await show_support_requests(callback, db_session)
-    
+        await show_support_requests_page(callback, db_session, page=0)
+
+    elif action.startswith("support_page_"):
+        page = int(action.replace("support_page_", ""))
+        await show_support_requests_page(callback, db_session, page=page)
+
+    elif action.startswith("support_view_"):
+        request_id = int(action.replace("support_view_", ""))
+        await show_support_request_view(callback, db_session, request_id)
+
+    elif action.startswith("support_reply_"):
+        request_id = int(action.replace("support_reply_", ""))
+        await start_support_reply(callback, state, request_id)
+
+    # ---------- СТАТИСТИКА ----------
     elif action == "stats":
         await show_stats(callback, db_session)
 
 
-# ==================== ОБРАБОТЧИКИ ДЛЯ КНОПОК РАССЫЛКИ ====================
+# ==================== СПИСОК ОБРАЩЕНИЙ ====================
+
+async def show_support_requests_page(
+    callback: CallbackQuery,
+    db_session: AsyncSession,
+    page: int = 0,
+):
+    """Показывает список обращений с пагинацией."""
+    try:
+        repo = SupportRepository(db_session)
+
+        total = await repo.count_all()
+        new_count = await repo.count_new()
+
+        if total == 0:
+            await callback.message.edit_text(
+                "📋 Обращения в поддержку\n\n"
+                "Обращений пока нет.",
+                reply_markup=get_admin_menu_keyboard(),
+            )
+            return
+
+        total_pages = max(1, (total + SUPPORT_PAGE_SIZE - 1) // SUPPORT_PAGE_SIZE)
+        page = max(0, min(page, total_pages - 1))
+
+        requests = await repo.get_all(
+            limit=SUPPORT_PAGE_SIZE,
+            offset=page * SUPPORT_PAGE_SIZE,
+        )
+
+        text = (
+            f"📋 <b>Обращения в поддержку</b>\n\n"
+            f"🟢 Новых: <b>{new_count}</b> | ⚪ Всего: <b>{total}</b>\n"
+            f"📄 Страница <b>{page + 1}</b> из <b>{total_pages}</b>\n\n"
+            "🟢 — новые, ⚪ — отвеченные.\n"
+            "Нажми на обращение, чтобы открыть."
+        )
+
+        keyboard = get_support_requests_list_keyboard(
+            requests,
+            page=page,
+            total_pages=total_pages,
+        )
+
+        try:
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception:
+            await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error in show_support_requests_page: {e}", exc_info=True)
+        await callback.message.edit_text(
+            "❌ Ошибка при загрузке обращений.",
+            reply_markup=get_admin_menu_keyboard(),
+        )
+
+
+async def show_support_request_view(
+    callback: CallbackQuery,
+    db_session: AsyncSession,
+    request_id: int,
+):
+    """Показывает конкретное обращение."""
+    try:
+        repo = SupportRepository(db_session)
+        req = await repo.get_by_id(request_id)
+
+        if not req:
+            await callback.answer("Обращение не найдено", show_alert=True)
+            return
+
+        # Данные пользователя
+        user_result = await db_session.execute(
+            select(User).where(User.telegram_id == req.user_id)
+        )
+        user = user_result.scalar_one_or_none()
+
+        user_display = "—"
+        if user:
+            user_display = f"@{user.username}" if user.username else (user.first_name or "—")
+        else:
+            user_display = f"ID {req.user_id}"
+
+        date_str = req.created_at.strftime("%d.%m.%Y %H:%M") if req.created_at else "—"
+
+        status = "🟢 Новое" if not req.is_answered else "⚪ Отвечено"
+
+        text = (
+            f"📩 <b>Обращение #{req.id}</b>\n\n"
+            f"📊 Статус: {status}\n"
+            f"👤 От: {user_display}\n"
+            f"🆔 ID: <code>{req.user_id}</code>\n"
+            f"📅 {date_str}\n\n"
+            f"💬 <b>Вопрос:</b>\n{req.message}\n"
+        )
+
+        if req.is_answered and req.answer:
+            answered_str = req.answered_at.strftime("%d.%m.%Y %H:%M") if req.answered_at else "—"
+            text += (
+                f"\n━━━━━━━━━━━━━━━━━━━\n\n"
+                f"✅ <b>Ответ ({answered_str}):</b>\n{req.answer}\n"
+            )
+
+        keyboard = get_support_request_view_keyboard(
+            request_id=req.id,
+            is_answered=req.is_answered,
+        )
+
+        try:
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception:
+            await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error in show_support_request_view: {e}", exc_info=True)
+        await callback.answer("Ошибка при загрузке обращения", show_alert=True)
+
+
+# ==================== ОТВЕТ НА ОБРАЩЕНИЕ ====================
+
+async def start_support_reply(
+    callback: CallbackQuery,
+    state: FSMContext,
+    request_id: int,
+):
+    """Начинает ввод ответа на обращение."""
+    await callback.answer()
+
+    await state.set_state(AdminStates.waiting_for_support_reply)
+    await state.update_data(support_reply_request_id=request_id)
+
+    text = (
+        f"✍️ <b>Ответ на обращение #{request_id}</b>\n\n"
+        "Напиши текст ответа. Он придёт пользователю в чат.\n\n"
+        "Чтобы отменить — нажми «❌ Отмена»."
+    )
+
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_support_reply_cancel_keyboard(request_id),
+            parse_mode="HTML",
+        )
+    except Exception:
+        await callback.message.answer(
+            text,
+            reply_markup=get_support_reply_cancel_keyboard(request_id),
+            parse_mode="HTML",
+        )
+
+
+@router.message(AdminStates.waiting_for_support_reply, F.text)
+async def process_support_reply(
+    message: types.Message,
+    state: FSMContext,
+    db_session: AsyncSession,
+):
+    """Отправляет ответ пользователю и помечает обращение как отвеченное."""
+    if not is_admin(message.from_user.id):
+        await message.answer("⛔ Доступ запрещён.")
+        await state.clear()
+        return
+
+    answer_text = message.text.strip()
+
+    if answer_text == "/cancel":
+        await state.clear()
+        await message.answer(
+            "🛡️ Админ-панель\n\n"
+            "Выбери действие:",
+            reply_markup=get_admin_menu_keyboard(),
+        )
+        return
+
+    if len(answer_text) < 3:
+        await message.answer(
+            "⚠️ Ответ слишком короткий. Напиши хотя бы 3 символа.",
+        )
+        return
+
+    data = await state.get_data()
+    request_id = data.get("support_reply_request_id")
+
+    if not request_id:
+        await message.answer("❌ Не найдено ID обращения. Начни заново.")
+        await state.clear()
+        return
+
+    repo = SupportRepository(db_session)
+    req = await repo.get_by_id(request_id)
+
+    if not req:
+        await message.answer(f"❌ Обращение #{request_id} не найдено.")
+        await state.clear()
+        return
+
+    # Отправляем ответ пользователю
+    try:
+        await message.bot.send_message(
+            chat_id=req.user_id,
+            text=(
+                f"📩 <b>Ответ на обращение #{req.id}</b>\n\n"
+                f"{answer_text}\n\n"
+                "━━━━━━━━━━━━━━━━━━━\n"
+                "💬 Если у вас есть ещё вопросы — напишите в поддержку."
+            ),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error(f"Failed to send answer to user {req.user_id}: {e}")
+        await message.answer(f"⚠️ Не удалось отправить ответ пользователю: {e}")
+        return
+
+    # Помечаем обращение как отвеченное
+    await repo.mark_answered(
+        request_id=req.id,
+        answer_text=answer_text,
+        answered_by=message.from_user.id,
+    )
+
+    await state.clear()
+
+    await message.answer(
+        f"✅ Ответ на обращение #{req.id} отправлен пользователю!",
+        reply_markup=get_admin_menu_keyboard(),
+    )
+    logger.info(f"Support reply sent: request_id={req.id}, admin={message.from_user.id}")
+
+
+@router.message(AdminStates.waiting_for_support_reply)
+async def process_support_reply_invalid(message: types.Message, state: FSMContext):
+    """Невалидный ввод ответа."""
+    await message.answer(
+        "Пожалуйста, напиши ответ текстом.",
+    )
+
+
+# ==================== ОСТАЛЬНЫЕ ОБРАБОТЧИКИ (без изменений) ====================
 
 @router.callback_query(F.data.startswith("broadcast_recipients_"))
 async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Выбор получателей рассылки."""
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Доступ запрещён.")
         return
-    
+
     await callback.answer()
-    
+
     recipients_type = callback.data.replace("broadcast_recipients_", "")
-    
-    # Если выбраны все, PRO или FREE — сразу переходим к тексту
+
     if recipients_type in ["all", "pro", "free"]:
         await state.update_data(recipients=recipients_type)
         await state.set_state(AdminStates.waiting_for_broadcast_text)
-        
+
         recipients_names = {
             "all": "Все пользователи",
             "pro": "Только PRO",
             "free": "Только FREE",
         }
         name = recipients_names.get(recipients_type, recipients_type)
-        
+
         await callback.message.edit_text(
             f"📢 Выбраны получатели: {name}\n\n"
             "Теперь введи текст сообщения для рассылки.\n"
@@ -119,8 +377,7 @@ async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, d
         )
         logger.info(f"📢 Broadcast recipients set: {recipients_type}")
         return
-    
-    # Если выбраны ID — запрашиваем ID
+
     elif recipients_type == "ids":
         await callback.message.edit_text(
             "📢 Введите Telegram ID пользователей через запятую.\n\n"
@@ -134,15 +391,13 @@ async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, d
 
 @router.message(AdminStates.waiting_for_broadcast_ids, F.text)
 async def process_broadcast_ids(message: types.Message, state: FSMContext):
-    """Обрабатывает ввод ID для рассылки."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         await state.clear()
         return
-    
+
     text = message.text.strip()
-    
-    # Если отмена
+
     if text == "/cancel":
         await state.clear()
         await message.answer(
@@ -151,8 +406,7 @@ async def process_broadcast_ids(message: types.Message, state: FSMContext):
             reply_markup=get_admin_menu_keyboard(),
         )
         return
-    
-    # Парсим ID
+
     try:
         user_ids = [int(x.strip()) for x in text.split(",") if x.strip().isdigit()]
     except ValueError:
@@ -162,18 +416,17 @@ async def process_broadcast_ids(message: types.Message, state: FSMContext):
             reply_markup=get_broadcast_keyboard(),
         )
         return
-    
+
     if not user_ids:
         await message.answer(
             "❌ Не найдено ни одного ID. Попробуй ещё раз.",
             reply_markup=get_broadcast_keyboard(),
         )
         return
-    
-    # Сохраняем ID и переходим к тексту
+
     await state.update_data(recipients="ids", user_ids=user_ids)
     await state.set_state(AdminStates.waiting_for_broadcast_text)
-    
+
     await message.answer(
         f"📢 Выбрано пользователей: {len(user_ids)}\n\n"
         "Теперь введи текст сообщения для рассылки.\n"
@@ -186,14 +439,13 @@ async def process_broadcast_ids(message: types.Message, state: FSMContext):
 
 @router.message(AdminStates.waiting_for_broadcast_text, F.text)
 async def process_broadcast_text(message: types.Message, state: FSMContext):
-    """Обрабатывает текст для рассылки."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         await state.clear()
         return
-    
+
     text = message.text.strip()
-    
+
     if text == "/cancel":
         await state.clear()
         await message.answer(
@@ -202,10 +454,10 @@ async def process_broadcast_text(message: types.Message, state: FSMContext):
             reply_markup=get_admin_menu_keyboard(),
         )
         return
-    
+
     await state.update_data(broadcast_text=text)
     await state.set_state(AdminStates.waiting_for_broadcast_image)
-    
+
     await message.answer(
         f"📢 Текст получен!\n\n"
         f"Текст:\n{text}\n\n"
@@ -218,22 +470,20 @@ async def process_broadcast_text(message: types.Message, state: FSMContext):
 
 @router.message(AdminStates.waiting_for_broadcast_image, F.photo)
 async def process_broadcast_image(message: types.Message, state: FSMContext):
-    """Обрабатывает картинку для рассылки."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         await state.clear()
         return
-    
+
     photo = message.photo[-1]
     file_id = photo.file_id
     await state.update_data(broadcast_image=file_id)
-    
+
     data = await state.get_data()
     text = data.get("broadcast_text", "")
     recipients_type = data.get("recipients", "all")
     user_ids = data.get("user_ids", [])
-    
-    # Формируем информацию о получателях
+
     if recipients_type == "ids":
         recipients_info = f"По ID ({len(user_ids)} пользователей)"
     else:
@@ -243,7 +493,7 @@ async def process_broadcast_image(message: types.Message, state: FSMContext):
             "free": "Только FREE",
         }
         recipients_info = recipients_names.get(recipients_type, recipients_type)
-    
+
     await message.answer_photo(
         photo=file_id,
         caption=f"📢 Проверь сообщение\n\n"
@@ -255,25 +505,21 @@ async def process_broadcast_image(message: types.Message, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_broadcast_confirm)
 
 
-# ==================== ИСПРАВЛЕННЫЙ ОБРАБОТЧИК "ОТПРАВИТЬ БЕЗ КАРТИНКИ" ====================
-
 @router.message(AdminStates.waiting_for_broadcast_image, F.text == "📨 Отправить без картинки")
 async def send_broadcast_without_image_text(message: types.Message, state: FSMContext):
-    """Отправляет рассылку без картинки (через текст)."""
     if not is_admin(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         await state.clear()
         return
-    
+
     data = await state.get_data()
     text = data.get("broadcast_text", "")
     recipients_type = data.get("recipients", "all")
     user_ids = data.get("user_ids", [])
-    
+
     await state.update_data(broadcast_image=None)
-    await state.set_state(AdminStates.waiting_for_broadcast_confirm)  # ← ВАЖНО!
-    
-    # Формируем информацию о получателях
+    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
+
     if recipients_type == "ids":
         recipients_info = f"По ID ({len(user_ids)} пользователей)"
     else:
@@ -283,7 +529,7 @@ async def send_broadcast_without_image_text(message: types.Message, state: FSMCo
             "free": "Только FREE",
         }
         recipients_info = recipients_names.get(recipients_type, recipients_type)
-    
+
     await message.answer(
         f"📢 Проверь сообщение\n\n"
         f"Получатели: {recipients_info}\n"
@@ -291,29 +537,24 @@ async def send_broadcast_without_image_text(message: types.Message, state: FSMCo
         "Всё верно? Нажми кнопку ниже, чтобы отправить.",
         reply_markup=get_confirm_broadcast_keyboard(),
     )
-    logger.info(f"📢 Broadcast without image via text, recipients={recipients_type}")
 
-
-# ==================== ОБРАБОТЧИК ДЛЯ КНОПКИ "SKIP IMAGE" (callback) ====================
 
 @router.callback_query(F.data == "broadcast_skip_image")
 async def skip_image_and_show_preview(callback: CallbackQuery, state: FSMContext):
-    """Обработчик для кнопки 'Отправить без картинки' (callback)."""
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Доступ запрещён.")
         return
-    
+
     await callback.answer()
-    
+
     data = await state.get_data()
     text = data.get("broadcast_text", "")
     recipients_type = data.get("recipients", "all")
     user_ids = data.get("user_ids", [])
-    
+
     await state.update_data(broadcast_image=None)
-    await state.set_state(AdminStates.waiting_for_broadcast_confirm)  # ← ВАЖНО!
-    
-    # Формируем информацию о получателях
+    await state.set_state(AdminStates.waiting_for_broadcast_confirm)
+
     if recipients_type == "ids":
         recipients_info = f"По ID ({len(user_ids)} пользователей)"
     else:
@@ -323,7 +564,7 @@ async def skip_image_and_show_preview(callback: CallbackQuery, state: FSMContext
             "free": "Только FREE",
         }
         recipients_info = recipients_names.get(recipients_type, recipients_type)
-    
+
     await callback.message.edit_text(
         f"📢 Проверь сообщение\n\n"
         f"Получатели: {recipients_info}\n"
@@ -331,44 +572,35 @@ async def skip_image_and_show_preview(callback: CallbackQuery, state: FSMContext
         "Всё верно? Нажми кнопку ниже, чтобы отправить.",
         reply_markup=get_confirm_broadcast_keyboard(),
     )
-    logger.info(f"📢 Broadcast without image via callback, recipients={recipients_type}")
 
-
-# ==================== ПОДТВЕРЖДЕНИЕ ОТПРАВКИ ====================
 
 @router.callback_query(F.data == "broadcast_confirm")
 async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
-    """Подтверждение отправки рассылки."""
     if not is_admin(callback.from_user.id):
         await callback.answer("⛔ Доступ запрещён.")
         return
-    
+
     await callback.answer("Отправляю рассылку...")
-    
+
     data = await state.get_data()
     text = data.get("broadcast_text", "")
     image = data.get("broadcast_image")
     recipients_type = data.get("recipients", "all")
     user_ids = data.get("user_ids", [])
-    
+
     logger.info(f"📢 FINAL: text_length={len(text)}, image={image}, recipients={recipients_type}")
-    
-    # ==================== ДОБАВЛЯЕМ ЗАГОЛОВОК ====================
+
     header = "📢 <b>Сообщение от администратора</b>\n\n"
     full_text = header + text
-    # ============================================================
-    
-    # Получаем пользователей
+
     if recipients_type == "all":
         result = await db_session.execute(select(User))
         users = result.scalars().all()
-        logger.info(f"📢 All users: {len(users)}")
     elif recipients_type == "pro":
         result = await db_session.execute(
             select(User).join(ProWhitelist, User.telegram_id == ProWhitelist.user_id)
         )
         users = result.scalars().all()
-        logger.info(f"📢 Pro users: {len(users)}")
     elif recipients_type == "free":
         result = await db_session.execute(
             select(User).where(
@@ -378,9 +610,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
             )
         )
         users = result.scalars().all()
-        logger.info(f"📢 Free users: {len(users)}")
     elif recipients_type == "ids" and user_ids:
-        # 🔥 РЕАЛИЗАЦИЯ ПО ID
         users = []
         for uid in user_ids:
             result = await db_session.execute(
@@ -389,21 +619,17 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
             user = result.scalar_one_or_none()
             if user:
                 users.append(user)
-            else:
-                logger.warning(f"User with ID {uid} not found")
-        logger.info(f"📢 IDs users found: {len(users)}")
     else:
         await callback.message.edit_text("❌ Не выбраны получатели.", reply_markup=get_admin_menu_keyboard())
         return
-    
+
     if not users:
         await callback.message.edit_text("❌ Нет пользователей для рассылки.", reply_markup=get_admin_menu_keyboard())
         return
-    
+
     success_count = 0
     fail_count = 0
-    
-    # Сохраняем рассылку в БД
+
     broadcast = Broadcast(
         title="Рассылка",
         message=full_text,
@@ -413,8 +639,7 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     )
     db_session.add(broadcast)
     await db_session.commit()
-    
-    # Отправляем каждому пользователю
+
     for user in users:
         try:
             if image:
@@ -435,12 +660,12 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
             logger.error(f"Failed to send to {user.telegram_id}: {e}")
             fail_count += 1
         await asyncio.sleep(0.05)
-    
+
     broadcast.is_sent = True
     broadcast.sent_at = datetime.now()
     await db_session.commit()
     await state.clear()
-    
+
     await callback.message.edit_text(
         f"✅ Рассылка отправлена!\n\n"
         f"Доставлено: {success_count}\n"
@@ -452,7 +677,6 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
 
 @router.callback_query(F.data == "broadcast_cancel")
 async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
-    """Отмена рассылки."""
     await callback.answer("Рассылка отменена")
     await state.clear()
     await callback.message.edit_text(
@@ -462,7 +686,7 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== БЕЛЫЙ СПИСОК ====================
+# ==================== БЕЛЫЙ СПИСОК (без изменений) ====================
 
 async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
     try:
@@ -470,7 +694,7 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
             select(ProWhitelist).order_by(ProWhitelist.created_at.desc())
         )
         entries = result.scalars().all()
-        
+
         if not entries:
             await callback.message.edit_text(
                 "📋 Белый список PRO\n\n"
@@ -480,7 +704,7 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
                 reply_markup=get_admin_menu_keyboard(),
             )
             return
-        
+
         text = "📋 Белый список PRO\n\n"
         for entry in entries:
             user_result = await db_session.execute(
@@ -490,7 +714,7 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
             name = user.first_name if user else "Неизвестно"
             date = entry.created_at.strftime("%d.%m.%Y")
             text += f"• {entry.user_id} — {name} (добавлен {date})\n"
-        
+
         await callback.message.edit_text(
             text,
             reply_markup=get_admin_menu_keyboard(),
@@ -594,98 +818,6 @@ async def remove_pro_command(message: types.Message, db_session: AsyncSession):
         await message.answer("❌ Ошибка при удалении пользователя.")
 
 
-# ==================== ПОДДЕРЖКА ====================
-
-async def show_support_requests(callback: CallbackQuery, db_session: AsyncSession):
-    try:
-        result = await db_session.execute(
-            select(SupportRequest)
-            .where(SupportRequest.is_answered == False)
-            .order_by(SupportRequest.created_at.desc())
-        )
-        requests = result.scalars().all()
-        
-        if not requests:
-            await callback.message.edit_text(
-                "📋 Обращения в поддержку\n\n"
-                "Новых обращений нет.",
-                reply_markup=get_admin_menu_keyboard(),
-            )
-            return
-        
-        text = "📋 Обращения в поддержку\n\n"
-        for req in requests[:10]:
-            date = req.created_at.strftime("%d.%m.%Y %H:%M")
-            text += f"#{req.id} от {req.user_id} ({date})\n"
-            text += f"📝 {req.message[:100]}...\n"
-            text += f"➡️ /answer {req.id} <текст>\n\n"
-        
-        text += "Используйте команду /answer <ID> <текст> для ответа."
-        
-        await callback.message.edit_text(
-            text,
-            reply_markup=get_admin_menu_keyboard(),
-        )
-    except Exception as e:
-        logger.error(f"Error in show_support_requests: {e}")
-        await callback.message.edit_text(
-            "❌ Ошибка при загрузке обращений.",
-            reply_markup=get_admin_menu_keyboard(),
-        )
-
-
-@router.message(Command("answer"))
-async def answer_support(message: types.Message, db_session: AsyncSession):
-    if not is_admin(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён.")
-        return
-
-    args = message.text.split(maxsplit=2)
-    if len(args) < 3:
-        await message.answer(
-            "❌ Неверный формат.\n\n"
-            "Используйте: /answer <ID> <текст ответа>\n"
-            "Например: /answer 5 Спасибо за обращение!"
-        )
-        return
-
-    try:
-        request_id = int(args[1])
-        answer_text = args[2]
-    except ValueError:
-        await message.answer("❌ ID должен быть числом.")
-        return
-
-    try:
-        result = await db_session.execute(
-            select(SupportRequest).where(SupportRequest.id == request_id)
-        )
-        request = result.scalar_one_or_none()
-        if not request:
-            await message.answer(f"❌ Обращение #{request_id} не найдено.")
-            return
-
-        await message.bot.send_message(
-            chat_id=request.user_id,
-            text=f"📩 Ответ на обращение #{request.id}\n\n"
-                 f"{answer_text}\n\n"
-                 "━━━━━━━━━━━━━━━━━━━\n"
-                 "💬 Если у вас есть ещё вопросы — напишите в поддержку.",
-            parse_mode="HTML",
-        )
-
-        request.is_answered = True
-        request.answer = answer_text
-        request.answered_by = message.from_user.id
-        request.answered_at = datetime.now()
-        await db_session.commit()
-
-        await message.answer(f"✅ Ответ на обращение #{request_id} отправлен!")
-    except Exception as e:
-        logger.error(f"Error in answer_support: {e}")
-        await message.answer(f"❌ Ошибка при ответе: {e}")
-
-
 # ==================== СТАТИСТИКА ====================
 
 async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
@@ -696,7 +828,7 @@ async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
         pro_count = (await db_session.execute(
             select(func.count()).select_from(Subscription).where(Subscription.plan == PlanType.PRO)
         )).scalar()
-        
+
         text = (
             f"📊 Статистика бота\n\n"
             f"👤 Пользователей: {users_count or 0}\n"
@@ -704,7 +836,7 @@ async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
             f"📔 Записей в дневнике: {diary_count or 0}\n"
             f"⭐ PRO-пользователей: {pro_count or 0}"
         )
-        
+
         await callback.message.edit_text(
             text,
             reply_markup=get_admin_menu_keyboard(),

@@ -51,7 +51,7 @@ class DynamicsStates(StatesGroup):
     """
     Состояния для раздела "Моя динамика".
     """
-    choosing_period = State()          # Выбор периода (7/14/30/90 дней)
+    choosing_period = State()          # Выбор периода
     waiting_for_custom_period = State()  # Ожидание ввода своего периода
     viewing_report = State()           # Просмотр отчёта
 
@@ -83,6 +83,7 @@ class AdminStates(StatesGroup):
     waiting_for_broadcast_text = State()        # Ожидание текста для рассылки
     waiting_for_broadcast_image = State()       # Ожидание картинки для рассылки
     waiting_for_broadcast_confirm = State()     # Подтверждение рассылки
+    waiting_for_support_reply = State()         # Ожидание ответа на обращение в поддержку
 
 
 # ==================== ПОДДЕРЖКА ====================
@@ -120,7 +121,7 @@ class HelpDialogStates(StatesGroup):
     """
     Состояния для свободного AI-диалога «Помогите разобраться».
     """
-    waiting_for_message = State()      # Ожидание сообщения от пользователя (продолжение диалога)
+    waiting_for_message = State()      # Ожидание сообщения от пользователя
 
 
 # ==================== СЦЕНАРИЙ «ОПИСАТЬ СОСТОЯНИЕ» ====================
@@ -139,33 +140,33 @@ class MorningSurveyStates(StatesGroup):
     """
     Состояния для утреннего опроса.
     """
-    waiting_for_question_1 = State()  # Как проснулся?
-    waiting_for_question_2 = State()  # Что чувствуешь в теле?
-    waiting_for_question_3 = State()  # Какое настроение?
-    waiting_for_question_4 = State()  # Что в мыслях?
-    waiting_for_question_5 = State()  # Как спал?
-    waiting_for_clarification = State()  # Уточняющие вопросы
-    waiting_for_reminder = State()  # Интерактив (напоминание)
+    waiting_for_question_1 = State()
+    waiting_for_question_2 = State()
+    waiting_for_question_3 = State()
+    waiting_for_question_4 = State()
+    waiting_for_question_5 = State()
+    waiting_for_clarification = State()
+    waiting_for_reminder = State()
 
 
 class DaySurveyStates(StatesGroup):
     """
     Состояния для дневного опроса.
     """
-    waiting_for_question_1 = State()  # Как ты сейчас?
-    waiting_for_question_2 = State()  # Что изменилось с утра?
-    waiting_for_question_3 = State()  # Что повлияло?
-    waiting_for_finish = State()      # Завершение
+    waiting_for_question_1 = State()
+    waiting_for_question_2 = State()
+    waiting_for_question_3 = State()
+    waiting_for_finish = State()
 
 
 class EveningSurveyStates(StatesGroup):
     """
     Состояния для вечернего опроса.
     """
-    waiting_for_question_1 = State()  # Как себя чувствуешь?
-    waiting_for_question_2 = State()  # Что повлияло на состояние?
-    waiting_for_question_3 = State()  # Что дало энергию?
-    waiting_for_question_4 = State()  # Что забрало силы?
-    waiting_for_question_5 = State()  # Как с едой, сном, движением?
-    waiting_for_clarification = State()  # Уточняющие вопросы
-    waiting_for_reminder = State()  # Интерактив (напоминание)
+    waiting_for_question_1 = State()
+    waiting_for_question_2 = State()
+    waiting_for_question_3 = State()
+    waiting_for_question_4 = State()
+    waiting_for_question_5 = State()
+    waiting_for_clarification = State()
+    waiting_for_reminder = State()

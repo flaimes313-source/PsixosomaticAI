@@ -256,7 +256,7 @@ async def close_support(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== «ЗАДАТЬ ВОПРОС» — СУЩЕСТВУЮЩИЙ МЕХАНИЗМ ====================
+# ==================== «ЗАДАТЬ ВОПРОС» ====================
 
 @router.callback_query(F.data == "support_ask")
 async def start_support_question(callback: CallbackQuery, state: FSMContext):
@@ -312,15 +312,17 @@ async def process_support_question(message: types.Message, state: FSMContext, db
     # Сохраняем ID обращения в FSM
     await state.update_data(request_id=support_request.id)
 
-    # Ответ пользователю
+    # ==================== АВТООТВЕТ ПОЛЬЗОВАТЕЛЮ ====================
     await message.answer(
-        "✅ <b>Ваше обращение отправлено!</b>\n\n"
-        "Мы ответим вам в ближайшее время.\n"
+        "✅ <b>Ваше обращение принято!</b>\n\n"
+        "Мы ответим в максимально короткие сроки.\n"
         "Ответ придёт в этот чат.\n\n"
         "🆔 Номер обращения: <b>#{}</b>".format(support_request.id),
         reply_markup=get_main_menu_keyboard(),
         parse_mode="HTML",
     )
+    # ==============================================================
+
     await state.clear()
 
     logger.info(f"Support request created: id={support_request.id}, user={message.from_user.id}")
@@ -345,7 +347,7 @@ async def process_support_question(message: types.Message, state: FSMContext, db
                 f"👤 Пользователь: {safe_user_id}\n"
                 f"👤 Имя: {safe_user_name}\n"
                 f"📝 Вопрос:\n{safe_question}\n\n"
-                f"➡️ Ответить: /answer {support_request.id} <текст ответа>"
+                f"➡️ Ответить можно в /admin → Обращения в поддержку"
             ),
         )
         logger.info(f"✅ Admin notified about support request #{support_request.id}")
