@@ -282,7 +282,7 @@ async def _handle_profile_action(callback: CallbackQuery, state: FSMContext, db_
             "Мы сохраняем технические данные,\n"
             "необходимые для работы бота:\n"
             "• Telegram ID\n"
-            "• Имя и фамилия\n"
+            "• Username\n"
             "• Время взаимодействия\n"
             "• История анализов\n\n"
             "Вы можете удалить все свои данные\n"
