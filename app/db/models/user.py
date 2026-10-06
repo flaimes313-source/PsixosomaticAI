@@ -17,7 +17,6 @@ from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.db.models.analysis import Analysis
-    from app.db.models.diary import DiaryEntry
     from app.db.models.diary_event import DiaryEvent
 
 
@@ -67,29 +66,21 @@ class User(Base):
     help_analysis_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
     diary_entries_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    # ==================== НОВОЕ: TRIAL И FREE-ДИАЛОГ ====================
-    # trial_used: TRUE, если пользователь уже запускал 3-дневный пробный PRO.
-    # Повторно trial не даётся.
+    # ==================== TRIAL И FREE-ДИАЛОГ ====================
     trial_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # trial_started_at: когда начался пробный PRO.
     trial_started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True
     )
 
-    # trial_ends_at: когда закончится пробный PRO (started_at + 3 дня).
     trial_ends_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True
     )
 
-    # free_dialog_used: TRUE, если пользователь уже использовал
-    # свой единственный бесплатный диалог «Описать состояние» после trial.
     free_dialog_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # free_dialog_questions_count: сколько уточняющих вопросов Сома задала
-    # в текущем бесплатном диалоге (максимум 3).
     free_dialog_questions_count: Mapped[int] = mapped_column(
         Integer,
         default=0,
@@ -102,13 +93,6 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
         order_by="Analysis.created_at.desc()",
-    )
-
-    diary_entries: Mapped[List["DiaryEntry"]] = relationship(
-        "DiaryEntry",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        order_by="DiaryEntry.created_at.desc()",
     )
 
     diary_events: Mapped[List["DiaryEvent"]] = relationship(
