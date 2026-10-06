@@ -3,6 +3,7 @@
 """
 import asyncio
 from aiogram import Router, types, F
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -42,6 +43,41 @@ def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
 
 
+# ==================== БЕЗОПАСНОЕ РЕДАКТИРОВАНИЕ ====================
+
+async def safe_edit_text(
+    callback: CallbackQuery,
+    text: str,
+    reply_markup=None,
+    parse_mode: str = "HTML",
+):
+    """
+    Безопасно редактирует сообщение.
+    - Если текст не изменился ('message is not modified') — игнорирует.
+    - При прочих ошибках — отправляет новое сообщение.
+    """
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e):
+            logger.info("safe_edit_text: message is not modified, skipping")
+            return
+        try:
+            await callback.message.answer(
+                text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+            )
+        except Exception as inner:
+            logger.error(f"safe_edit_text fallback failed: {inner}")
+    except Exception as e:
+        logger.error(f"safe_edit_text unexpected error: {e}", exc_info=True)
+
+
 # ==================== ГЛАВНОЕ МЕНЮ ====================
 
 @router.message(Command("admin"))
@@ -68,7 +104,8 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
     # ---------- ВОЗВРАТ В ГЛАВНОЕ МЕНЮ АДМИНКИ ----------
     if action == "back":
         await state.clear()
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             "🛡️ Админ-панель\n\n"
             "Выбери действие:",
             reply_markup=get_admin_menu_keyboard(),
@@ -81,7 +118,8 @@ async def admin_menu_actions(callback: CallbackQuery, state: FSMContext, db_sess
 
     # ---------- РАССЫЛКА ----------
     elif action == "broadcast":
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             "📢 Создать рассылку\n\n"
             "Выбери получателей:",
             reply_markup=get_broadcast_recipients_keyboard(),
@@ -123,7 +161,8 @@ async def show_support_requests_page(
         new_count = await repo.count_new()
 
         if total == 0:
-            await callback.message.edit_text(
+            await safe_edit_text(
+                callback,
                 "📋 Обращения в поддержку\n\n"
                 "Обращений пока нет.",
                 reply_markup=get_admin_menu_keyboard(),
@@ -152,14 +191,12 @@ async def show_support_requests_page(
             total_pages=total_pages,
         )
 
-        try:
-            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-        except Exception:
-            await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        await safe_edit_text(callback, text, reply_markup=keyboard, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Error in show_support_requests_page: {e}", exc_info=True)
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             "❌ Ошибка при загрузке обращений.",
             reply_markup=get_admin_menu_keyboard(),
         )
@@ -215,10 +252,7 @@ async def show_support_request_view(
             is_answered=req.is_answered,
         )
 
-        try:
-            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-        except Exception:
-            await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        await safe_edit_text(callback, text, reply_markup=keyboard, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Error in show_support_request_view: {e}", exc_info=True)
@@ -244,18 +278,12 @@ async def start_support_reply(
         "Чтобы отменить — нажми «❌ Отмена»."
     )
 
-    try:
-        await callback.message.edit_text(
-            text,
-            reply_markup=get_support_reply_cancel_keyboard(request_id),
-            parse_mode="HTML",
-        )
-    except Exception:
-        await callback.message.answer(
-            text,
-            reply_markup=get_support_reply_cancel_keyboard(request_id),
-            parse_mode="HTML",
-        )
+    await safe_edit_text(
+        callback,
+        text,
+        reply_markup=get_support_reply_cancel_keyboard(request_id),
+        parse_mode="HTML",
+    )
 
 
 @router.message(AdminStates.waiting_for_support_reply, F.text)
@@ -366,7 +394,8 @@ async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, d
         }
         name = recipients_names.get(recipients_type, recipients_type)
 
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             f"📢 Выбраны получатели: {name}\n\n"
             "Теперь введи текст сообщения для рассылки.\n"
             "Можно отправить картинку (приложи файлом к следующему сообщению).\n\n"
@@ -377,7 +406,8 @@ async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, d
         return
 
     elif recipients_type == "ids":
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             "📢 Введите Telegram ID пользователей через запятую.\n\n"
             "Пример: 123456789, 987654321, 555555555\n\n"
             "Чтобы отменить — нажми /cancel",
@@ -563,7 +593,8 @@ async def skip_image_and_show_preview(callback: CallbackQuery, state: FSMContext
         }
         recipients_info = recipients_names.get(recipients_type, recipients_type)
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         f"📢 Проверь сообщение\n\n"
         f"Получатели: {recipients_info}\n"
         f"Текст:\n{text}\n\n"
@@ -618,11 +649,11 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
             if user:
                 users.append(user)
     else:
-        await callback.message.edit_text("❌ Не выбраны получатели.", reply_markup=get_admin_menu_keyboard())
+        await safe_edit_text(callback, "❌ Не выбраны получатели.", reply_markup=get_admin_menu_keyboard())
         return
 
     if not users:
-        await callback.message.edit_text("❌ Нет пользователей для рассылки.", reply_markup=get_admin_menu_keyboard())
+        await safe_edit_text(callback, "❌ Нет пользователей для рассылки.", reply_markup=get_admin_menu_keyboard())
         return
 
     success_count = 0
@@ -664,7 +695,8 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
     await db_session.commit()
     await state.clear()
 
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         f"✅ Рассылка отправлена!\n\n"
         f"Доставлено: {success_count}\n"
         f"Ошибок: {fail_count}\n"
@@ -677,7 +709,8 @@ async def confirm_broadcast(callback: CallbackQuery, state: FSMContext, db_sessi
 async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
     await callback.answer("Рассылка отменена")
     await state.clear()
-    await callback.message.edit_text(
+    await safe_edit_text(
+        callback,
         "🛡️ Админ-панель\n\n"
         "Выбери действие:",
         reply_markup=get_admin_menu_keyboard(),
@@ -694,7 +727,8 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
         entries = result.scalars().all()
 
         if not entries:
-            await callback.message.edit_text(
+            await safe_edit_text(
+                callback,
                 "📋 Белый список PRO\n\n"
                 "Список пуст.\n\n"
                 "Добавить: /add_pro <Telegram ID>\n"
@@ -713,13 +747,15 @@ async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
             date = entry.created_at.strftime("%d.%m.%Y")
             text += f"• {entry.user_id} — {name} (добавлен {date})\n"
 
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             text,
             reply_markup=get_admin_menu_keyboard(),
         )
     except Exception as e:
         logger.error(f"Error in show_whitelist: {e}")
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             "❌ Ошибка при загрузке белого списка.",
             reply_markup=get_admin_menu_keyboard(),
         )
@@ -820,8 +856,6 @@ async def remove_pro_command(message: types.Message, db_session: AsyncSession):
 
 async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
     try:
-        from app.db.models.whitelist import ProWhitelist
-
         users_count = (await db_session.execute(
             select(func.count()).select_from(User)
         )).scalar() or 0
@@ -834,7 +868,6 @@ async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
             select(func.count()).select_from(DiaryEvent)
         )).scalar() or 0
 
-        # Уникальных пользователей с записями
         diary_users_count = (await db_session.execute(
             select(func.count(func.distinct(DiaryEvent.user_id)))
         )).scalar() or 0
@@ -867,14 +900,16 @@ async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
             f"🟢 Новых обращений: <b>{support_new_count}</b>"
         )
 
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             text,
             reply_markup=get_admin_menu_keyboard(),
             parse_mode="HTML",
         )
     except Exception as e:
         logger.error(f"Error in show_stats: {e}", exc_info=True)
-        await callback.message.edit_text(
+        await safe_edit_text(
+            callback,
             "❌ Ошибка при загрузке статистики.",
             reply_markup=get_admin_menu_keyboard(),
         )
