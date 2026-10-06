@@ -15,7 +15,7 @@ from app.db.models.broadcast import Broadcast
 from app.db.models.support import SupportRequest
 from app.db.models.user import User
 from app.db.models.analysis import Analysis
-from app.db.models.diary import DiaryEntry
+from app.db.models.diary_event import DiaryEvent
 from app.db.models.subscription import Subscription, PlanType
 from app.db.repositories.support import SupportRepository
 from app.bot.states import AdminStates
@@ -179,7 +179,6 @@ async def show_support_request_view(
             await callback.answer("Обращение не найдено", show_alert=True)
             return
 
-        # Данные пользователя
         user_result = await db_session.execute(
             select(User).where(User.telegram_id == req.user_id)
         )
@@ -321,7 +320,6 @@ async def process_support_reply(
         await message.answer(f"⚠️ Не удалось отправить ответ пользователю: {e}")
         return
 
-    # Помечаем обращение как отвеченное
     await repo.mark_answered(
         request_id=req.id,
         answer_text=answer_text,
@@ -345,7 +343,7 @@ async def process_support_reply_invalid(message: types.Message, state: FSMContex
     )
 
 
-# ==================== ОСТАЛЬНЫЕ ОБРАБОТЧИКИ (без изменений) ====================
+# ==================== РАССЫЛКА ====================
 
 @router.callback_query(F.data.startswith("broadcast_recipients_"))
 async def set_broadcast_recipients(callback: CallbackQuery, state: FSMContext, db_session: AsyncSession):
@@ -686,7 +684,7 @@ async def cancel_broadcast(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ==================== БЕЛЫЙ СПИСОК (без изменений) ====================
+# ==================== БЕЛЫЙ СПИСОК ====================
 
 async def show_whitelist(callback: CallbackQuery, db_session: AsyncSession):
     try:
@@ -822,27 +820,60 @@ async def remove_pro_command(message: types.Message, db_session: AsyncSession):
 
 async def show_stats(callback: CallbackQuery, db_session: AsyncSession):
     try:
-        users_count = (await db_session.execute(select(func.count()).select_from(User))).scalar()
-        analyses_count = (await db_session.execute(select(func.count()).select_from(Analysis))).scalar()
-        diary_count = (await db_session.execute(select(func.count()).select_from(DiaryEntry))).scalar()
+        from app.db.models.whitelist import ProWhitelist
+
+        users_count = (await db_session.execute(
+            select(func.count()).select_from(User)
+        )).scalar() or 0
+
+        analyses_count = (await db_session.execute(
+            select(func.count()).select_from(Analysis)
+        )).scalar() or 0
+
+        diary_events_count = (await db_session.execute(
+            select(func.count()).select_from(DiaryEvent)
+        )).scalar() or 0
+
+        # Уникальных пользователей с записями
+        diary_users_count = (await db_session.execute(
+            select(func.count(func.distinct(DiaryEvent.user_id)))
+        )).scalar() or 0
+
         pro_count = (await db_session.execute(
             select(func.count()).select_from(Subscription).where(Subscription.plan == PlanType.PRO)
-        )).scalar()
+        )).scalar() or 0
+
+        whitelist_count = (await db_session.execute(
+            select(func.count()).select_from(ProWhitelist)
+        )).scalar() or 0
+
+        support_count = (await db_session.execute(
+            select(func.count()).select_from(SupportRequest)
+        )).scalar() or 0
+
+        support_new_count = (await db_session.execute(
+            select(func.count()).select_from(SupportRequest).where(SupportRequest.is_answered == False)
+        )).scalar() or 0
 
         text = (
-            f"📊 Статистика бота\n\n"
-            f"👤 Пользователей: {users_count or 0}\n"
-            f"🧠 Анализов: {analyses_count or 0}\n"
-            f"📔 Записей в дневнике: {diary_count or 0}\n"
-            f"⭐ PRO-пользователей: {pro_count or 0}"
+            f"📊 <b>Статистика бота</b>\n\n"
+            f"👤 Пользователей: <b>{users_count}</b>\n"
+            f"🧠 Анализов: <b>{analyses_count}</b>\n"
+            f"📔 Записей в дневнике: <b>{diary_events_count}</b>\n"
+            f"📔 Пользователей с записями: <b>{diary_users_count}</b>\n"
+            f"⭐ PRO (платных): <b>{pro_count}</b>\n"
+            f"💎 Whitelist PRO: <b>{whitelist_count}</b>\n"
+            f"📩 Обращений в поддержку: <b>{support_count}</b>\n"
+            f"🟢 Новых обращений: <b>{support_new_count}</b>"
         )
 
         await callback.message.edit_text(
             text,
             reply_markup=get_admin_menu_keyboard(),
+            parse_mode="HTML",
         )
     except Exception as e:
-        logger.error(f"Error in show_stats: {e}")
+        logger.error(f"Error in show_stats: {e}", exc_info=True)
         await callback.message.edit_text(
             "❌ Ошибка при загрузке статистики.",
             reply_markup=get_admin_menu_keyboard(),
