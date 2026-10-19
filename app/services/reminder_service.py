@@ -1,6 +1,10 @@
 """
 Сервис для отправки утреннего сообщения «Описать состояние».
 Работает вместо SurveyScheduler — настраивается через профиль.
+
+Изменения:
+- Окно отправки расширено с ±1 мин до 15 минут после заданного времени,
+  чтобы не терять опросы при рестартах или задержках цикла.
 """
 import asyncio
 import random
@@ -18,6 +22,9 @@ from app.utils.logging import logger
 
 class ReminderService:
     """Сервис для отправки утреннего сообщения «Описать состояние»."""
+
+    # Окно отправки в минутах после заданного времени
+    SEND_WINDOW_MINUTES = 15
 
     # Варианты утреннего сообщения (выбираются случайно)
     MORNING_TEXTS = [
@@ -83,7 +90,7 @@ class ReminderService:
         while self.running:
             try:
                 await self._check_reminders()
-                await asyncio.sleep(10)
+                await asyncio.sleep(60)
             except Exception as e:
                 logger.error(f"Error in reminder scheduler loop: {e}")
                 await asyncio.sleep(30)
@@ -100,6 +107,7 @@ class ReminderService:
                 if not settings.enabled or not settings.reminder_time:
                     continue
 
+                # Пропускаем, если уже отправляли сегодня
                 if await reminder_repo.is_reminder_sent_today(settings.user_id):
                     continue
 
@@ -109,16 +117,18 @@ class ReminderService:
                     user_tz = ZoneInfo("UTC")
 
                 user_now = datetime.now(user_tz)
-                user_time = user_now.time()
                 user_weekday = user_now.weekday()
 
                 reminder_hour = settings.reminder_time.hour
                 reminder_minute = settings.reminder_time.minute
 
-                # Окно ±1 минута
-                if (user_time.hour == reminder_hour and
-                        abs(user_time.minute - reminder_minute) <= 1):
+                # Преобразуем в минуты от начала дня
+                reminder_total = reminder_hour * 60 + reminder_minute
+                user_total = user_now.hour * 60 + user_now.minute
 
+                # Окно: от reminder_time до reminder_time + 15 минут
+                if 0 <= (user_total - reminder_total) < self.SEND_WINDOW_MINUTES:
+                    # Проверка дней недели
                     if settings.days_of_week is not None and len(settings.days_of_week) > 0:
                         if user_weekday not in settings.days_of_week:
                             continue
@@ -138,11 +148,15 @@ class ReminderService:
                 logger.warning(f"User {user_id} not found for reminder")
                 return
 
+            # Пропускаем отправку самому боту
+            if user_id == self.bot.id:
+                logger.info(f"Skipping morning message to bot itself: {user_id}")
+                return
+
             text = random.choice(self.MORNING_TEXTS)
 
             from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-            # Только одна кнопка — «Описать состояние»
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [InlineKeyboardButton(
