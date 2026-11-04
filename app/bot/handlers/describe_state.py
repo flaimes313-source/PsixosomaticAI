@@ -202,6 +202,7 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
         )
         return
 
+    # ==================== ПРОВЕРКА БЕЗОПАСНОСТИ ====================
     safety_result = safety_service.check_input(description)
     if safety_result.level == SafetyLevel.CRITICAL:
         await message.answer(
@@ -210,6 +211,10 @@ async def process_describe_state(message: types.Message, state: FSMContext, db_s
         )
         await state.clear()
         return
+    elif safety_result.level == SafetyLevel.WARNING:
+        await message.answer(safety_result.warning, parse_mode="HTML")
+        # не return, продолжаем диалог
+    # ==============================================================
 
     data = await state.get_data()
     dialog_message_id = data.get("dialog_message_id")
@@ -348,6 +353,7 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         )
         return
 
+    # ==================== ПРОВЕРКА БЕЗОПАСНОСТИ ====================
     safety_result = safety_service.check_input(user_text)
     if safety_result.level == SafetyLevel.CRITICAL:
         await message.answer(
@@ -356,6 +362,10 @@ async def continue_describe_dialog(message: types.Message, state: FSMContext, db
         )
         await state.clear()
         return
+    elif safety_result.level == SafetyLevel.WARNING:
+        await message.answer(safety_result.warning, parse_mode="HTML")
+        # не return, продолжаем диалог
+    # ==============================================================
 
     access_service = AccessService(db_session)
 
